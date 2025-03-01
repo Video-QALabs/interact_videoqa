@@ -1,7 +1,7 @@
 # Updates
-- [16 February 2025] Paper submitted for a conference [Under Review].
-- [28 February 2025] Website is Live.
 
+- [28 February 2025] Website is Live.
+- [16 February 2025] Paper submitted for a conference [Under Review].
 
 # *InterAct VideoQA*: A Benchmark Dataset for Video Question Answering in Traffic Intersection Monitoring
 <div>
