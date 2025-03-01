@@ -1,5 +1,5 @@
 # Updates
-- [16 February 2025] Paper submitted for conference.
+- [16 February 2025] Paper submitted for a conference [Under Review].
 - [28 February 2025] Website is Live.
 
 
