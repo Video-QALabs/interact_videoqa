@@ -14,8 +14,8 @@
 <div style="text-align: center;">
 <img src="https://github.com/user-attachments/assets/9b0e8d90-ff04-44f5-a2fc-9fc03e7aaf3a"/>
 </div>
-Traffic monitoring is crucial for urban mobility, road safety, and intelligent transportation systems (ITS). Deep learning has advanced video-based traffic monitoring through video question answering (VideoQA) models, enabling structured insight extraction from traffic videos. However, existing VideoQA models struggle with the complexity of real-world traffic scenes, where multiple concurrent events unfold across spatiotemporal dimensions. To address these challenges, this paper introduces InterAct VideoQA, a curated dataset designed to benchmark and enhance VideoQA models for traffic monitoring tasks. The InterAct VideoQA dataset comprises 8 hours of real-world traffic footage collected from diverse intersections, segmented into 10-second video clips, with over 25,000 question-answer (QA) pairs covering spatiotemporal dynamics, vehicle interactions, incident detection, and other critical traffic attributes. State-of-the-art VideoQA models are evaluated on InterAct VideoQA, exposing challenges in reasoning over fine-grained spatiotemporal dependencies within complex traffic scenarios. Fine-tuning these models on InterAct VideoQA also yields notable performance improvements, demonstrating the necessity of domain-specific datasets for VideoQA. InterAct VideoQA is publicly available as a benchmark dataset to facilitate future research in real-world-deployable VideoQA models for intelligent transportation systems.
-
+<p align="justify">Traffic monitoring is crucial for urban mobility, road safety, and intelligent transportation systems (ITS). Deep learning has advanced video-based traffic monitoring through video question answering (VideoQA) models, enabling structured insight extraction from traffic videos. However, existing VideoQA models struggle with the complexity of real-world traffic scenes, where multiple concurrent events unfold across spatiotemporal dimensions. To address these challenges, this paper introduces InterAct VideoQA, a curated dataset designed to benchmark and enhance VideoQA models for traffic monitoring tasks. The InterAct VideoQA dataset comprises 8 hours of real-world traffic footage collected from diverse intersections, segmented into 10-second video clips, with over 25,000 question-answer (QA) pairs covering spatiotemporal dynamics, vehicle interactions, incident detection, and other critical traffic attributes. State-of-the-art VideoQA models are evaluated on InterAct VideoQA, exposing challenges in reasoning over fine-grained spatiotemporal dependencies within complex traffic scenarios. Fine-tuning these models on InterAct VideoQA also yields notable performance improvements, demonstrating the necessity of domain-specific datasets for VideoQA. InterAct VideoQA is publicly available as a benchmark dataset to facilitate future research in real-world-deployable VideoQA models for intelligent transportation systems.
+</p>
 # Related Works
 
 
@@ -31,9 +31,9 @@ Traffic monitoring is crucial for urban mobility, road safety, and intelligent t
 _Will be released soon_
 
 # Dataset Overview
-
+<p align="justify">
 InterAct VideoQA dataset comprises 28,800 question-answer pairs across various reasoning categories. A higher concentration appears in counting, attribute recognition, and event reasoning, followed by counterfactual inference and reverse reasoning (3a). Figures 3(b)-(d) illustrate the dataset's emphasis on vehicular-related questions, the dominance of attribution and event reasoning categories, and the distribution of question types (“what,” “where,” and “how”). This structured approach supports the analysis of complex, multi-event traffic scenarios requiring robust spatio-temporal reasoning. A rigorous human and GPT-assisted validation process ensures all annotations' consistency, accuracy, and reliability.
-
+</p>
 # Folder Structure
 _Will be released soon_
 
