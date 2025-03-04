@@ -8,7 +8,7 @@
 <div>
 <a href="#"> Paper</a> |
 <a href="https://interact-videoqa.github.io/InterActVideoQA/">Website</a> |
-<a href="https://github.com/joe-rabbit/interact_videoqa">Data</a> |
+<a href="https://drive.google.com/drive/folders/1dwbeWHASKkLbLOImyHKE8of8hWCq7bdO?usp=drive_link">Data</a> |
 <a href="#" target="_blank">Doc </a>
 </div>
 <hr>
