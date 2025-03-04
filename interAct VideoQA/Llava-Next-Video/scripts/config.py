@@ -1,0 +1,1 @@
+config = {"lr": 5e-5, "max_epochs": 3, "accumulate_grad_batches": 2}
