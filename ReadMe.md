@@ -55,7 +55,7 @@ data
 
 The main implementations for these models for InterAct VideoQA can be found here.
 
-[VideoLLama2](https://github.com/DAMO-NLP-SG/VideoLLaMA2) |
+[VideoLLama2](https://github.com/joe-rabbit/interact_videoqa/tree/main/interAct%20VideoQA/VideoLlama2) |
 [LlavaNext-Video](https://github.com/LLaVA-VL/LLaVA-NeXT) | 
 [Qwen2-VL-7B-hf](https://github.com/QwenLM/Qwen2.5-VL)
 
