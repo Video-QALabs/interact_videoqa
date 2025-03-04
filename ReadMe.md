@@ -27,9 +27,8 @@
 
 
 # Dataset Download
+Dataset can be downloaded <a href="https://drive.google.com/drive/folders/1dwbeWHASKkLbLOImyHKE8of8hWCq7bdO?usp=drive_link">here</a>
 
-
-_Will be released soon_
 
 # Dataset Overview
 <p align="justify">
