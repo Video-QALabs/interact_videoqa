@@ -1,8 +1,8 @@
 # Updates
 
+- [3 March 2025] Training Code and Sample Dataset Released
 - [28 February 2025] Website is Live.
 - [16 February 2025] Paper submitted for a conference [Under Review].
-- [3 March 2025] Training Code and Sample Dataset Released
 
 # *InterAct VideoQA*: A Benchmark Dataset for Video Question Answering in Traffic Intersection Monitoring
 <div>
