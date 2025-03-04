@@ -7,7 +7,7 @@ from dataset import VideoLlama3Dataset, video_llama3_collate_fn
 def compute_metrics(eval_pred):
     return {}
 
-def main():
+def train():
     model, tokenizer, processor = load_model()
     model = configure_lora(model)
     
@@ -41,5 +41,3 @@ def main():
     torch.cuda.empty_cache()
     trainer.train()
 
-if __name__ == "__main__":
-    main()
