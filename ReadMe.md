@@ -48,9 +48,9 @@ data
 ```
 # Model Setup 
 Please look at the official github page for the models to set up.
-[VideoLLama2](https://github.com/DAMO-NLP-SG/VideoLLaMA2) |
-[LlavaNext-Video](https://github.com/LLaVA-VL/LLaVA-NeXT) | 
-[Qwen2-VL-7B-hf](https://github.com/QwenLM/Qwen2.5-VL)
+- [VideoLLama2](https://github.com/DAMO-NLP-SG/VideoLLaMA2)
+- [LlavaNext-Video](https://github.com/LLaVA-VL/LLaVA-NeXT)  
+- [Qwen2-VL-7B-hf](https://github.com/QwenLM/Qwen2.5-VL)
 # Baseline
 
 <div style="text-align: center;">
