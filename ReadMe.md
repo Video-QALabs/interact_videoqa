@@ -32,7 +32,7 @@ Dataset can be downloaded <a href="https://drive.google.com/drive/folders/1dwbeW
 
 # Dataset Overview
 <p align="justify">
-InterAct VideoQA dataset comprises 28,800 question-answer pairs across various reasoning categories. A higher concentration appears in counting, attribute recognition, and event reasoning, followed by counterfactual inference and reverse reasoning (3a). Figures 3(b)-(d) illustrate the dataset's emphasis on vehicular-related questions, the dominance of attribution and event reasoning categories, and the distribution of question types (“what,” “where,” and “how”). This structured approach supports the analysis of complex, multi-event traffic scenarios requiring robust spatio-temporal reasoning. A rigorous human and GPT-assisted validation process ensures all annotations' consistency, accuracy, and reliability.
+InterAct VideoQA dataset comprises 28,800 question-answer pairs across various reasoning categories. A higher concentration appears in counting, attribute recognition, and event reasoning, followed by counterfactual inference and reverse reasoning.The dataset also illustrate the dataset's emphasis on vehicular-related questions, the dominance of attribution and event reasoning categories, and the distribution of question types (“what,” “where,” and “how”). This structured approach supports the analysis of complex, multi-event traffic scenarios requiring robust spatio-temporal reasoning. A rigorous human and GPT-assisted validation process ensures all annotations' consistency, accuracy, and reliability.
 </p>
 
 # Folder Structure
