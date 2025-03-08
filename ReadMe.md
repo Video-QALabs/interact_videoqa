@@ -1,5 +1,6 @@
 # Updates
 
+- [7 March 2025] Dataset description released
 - [3 March 2025] Training Code and Sample Dataset Released
 - [28 February 2025] Website is Live.
 - [16 February 2025] Paper submitted for a conference [Under Review].
