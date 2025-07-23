@@ -9,7 +9,7 @@
 <div>
 <a href="#"> Paper</a> |
 <a href="https://interact-videoqa.github.io/InterActVideoQA/">Website</a> |
-<a href="https://drive.google.com/drive/folders/1dwbeWHASKkLbLOImyHKE8of8hWCq7bdO?usp=drive_link">Data</a> |
+<a href="https://huggingface.co/datasets/joeWabbit/InterAct_Video_Reasoning_Rich_Video_QA_for_Urban_Traffic/blob/main/README.md">Data</a> |
 <a href="https://interact-videoqa.github.io/InterActVideoQA/docs/InterAct_VideoQADatasetDescription.pdf" target="_blank">Doc </a>
 </div>
 <hr>
