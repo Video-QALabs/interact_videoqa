@@ -153,7 +153,7 @@ class VideoAnnotationTool:
               font=("Arial", 9, "bold")).pack(pady=(20, 5))
         Button(self.right_panel, text="Save CSV", command=self.save_csv,
                width=18).pack(pady=5)
-        Button(self.right_panel, text="Export Summary", command=self.export_summary,
+        Button(self.right_panel, text="qa-generation", command=self.export_summary,
                width=18).pack(pady=5)
 
         Label(self.right_panel, text="Statistics:", bg="lightgray",
@@ -431,7 +431,7 @@ class VideoAnnotationTool:
         messagebox.showinfo("CSV", "Save CSV functionality would go here")
 
     def export_summary(self):
-        messagebox.showinfo("Export", "Export summary functionality would go here")
+        messagebox.showinfo("Export", "qa-generation functionality would go here")
 
 # Main application
 if __name__ == "__main__":
