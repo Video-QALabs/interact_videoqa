@@ -4,6 +4,9 @@ import csv
 from tkinter import *
 from tkinter import filedialog, messagebox
 from PIL import Image, ImageTk
+import json
+import pandas as pd
+import threading
 
 class VideoAnnotationTool:
     def __init__(self, root):
@@ -25,6 +28,25 @@ class VideoAnnotationTool:
         self.current_video_qa = []
         self.csv_file_path = ""
         self.rejected_csv_file_path = ""
+        self.accepted_qa_data = []  # Track accepted Q&A pairs
+        
+        # Initialize missing variables
+        self.saved_prompts = []
+        self.video_dir = ""
+
+        # Prompt builders dictionary
+        self.PROMPT_BUILDERS = {
+            "1": self.build_llava,   # Video-LLaMA-2 / -3
+            "2": self.build_llava,   # Llava-NEXT VIDEO 
+            "3": self.build_qwen     # Qwen-VL-2-7B-HF
+        }
+        
+        # File suffix for export
+        self.FILE_SUFFIX = {
+            "1": "videollama2", 
+            "2": "llava_next", 
+            "3": "qwen"
+        }
 
         self.setup_ui()
 
@@ -82,8 +104,19 @@ class VideoAnnotationTool:
         Label(self.left_panel, text="Select Video:", bg="lightgray",
               font=("Arial", 9, "bold")).pack(pady=(20, 5))
 
-        self.video_listbox = Listbox(self.left_panel, height=8)
-        self.video_listbox.pack(pady=5, padx=10, fill=X)
+        # Create frame for listbox with scrollbar
+        listbox_frame = Frame(self.left_panel)
+        listbox_frame.pack(pady=5, padx=10, fill=BOTH, expand=True)
+
+        # Create listbox with scrollbar
+        self.video_listbox = Listbox(listbox_frame, height=8)
+        scrollbar = Scrollbar(listbox_frame, orient=VERTICAL, command=self.video_listbox.yview)
+        self.video_listbox.config(yscrollcommand=scrollbar.set)
+        
+        # Pack listbox and scrollbar
+        self.video_listbox.pack(side=LEFT, fill=BOTH, expand=True)
+        scrollbar.pack(side=RIGHT, fill=Y)
+        
         self.video_listbox.bind('<Double-Button-1>', self.on_video_select)
 
         Button(self.left_panel, text="Load Selected", command=self.load_selected_video,
@@ -186,10 +219,58 @@ class VideoAnnotationTool:
         Label(rejected_row, textvariable=self.rejected_var, font=("Arial", 8),
               bg="white", width=8, anchor=E).pack(side=LEFT, padx=2)
 
+        # Chat Template Selection
+        Label(self.right_panel, text="Chat Template:", bg="lightgray",
+              font=("Arial", 9, "bold")).pack(pady=(20, 5))
+        self.template_var = StringVar(value="1")
+        self.template_values = {
+            "VideoLLama2": "1",
+            "Llava-Next-Video": "2",
+            "Qwen-VL2-7b-hf": "3",
+            "All": "4"
+        }
+
+        for (text, val) in self.template_values.items():
+            Radiobutton(self.right_panel, text=text, variable=self.template_var, 
+                        value=val, bg="lightgray").pack(anchor=W, padx=20)
+
+        # Save button
+        Button(self.right_panel, text="Save Template Selection", 
+               command=self.save_chat_template_selection).pack(pady=10)
+
+        # Export button
+        Button(self.right_panel, text="Finish and Export", 
+               command=self.finish_and_export_chat_template).pack(pady=5)
+
+    def switch_mode(self):
+        """Switch between video playback and frame-by-frame analysis modes."""
+        if self.mode == "video":
+            self.mode = "frame"
+            self.switch_btn.config(text="Switch to Video Playback")
+            self.video_controls_frame.pack_forget()
+            self.controls_frame.pack(pady=10)
+            
+            # If we have a current video, load it as frames
+            if self.current_video_path:
+                self.stop_video()
+                threading.Thread(target=self.load_video_frames_safe, 
+                               args=(self.current_video_path,), daemon=True).start()
+        else:
+            self.mode = "video"
+            self.switch_btn.config(text="Switch to Frame Analysis")
+            self.controls_frame.pack_forget()
+            self.video_controls_frame.pack(pady=10)
+            
+            # If we have a current video, start video playback
+            if self.current_video_path:
+                self.frames.clear()
+                self.play_video(self.current_video_path)
+
     def browse_directory(self):
         directory = filedialog.askdirectory()
         if directory:
             self.base_directory = directory
+            self.video_dir = directory  # Set video_dir as well
             self.dir_var.set(directory)
             self.populate_video_list()
 
@@ -209,61 +290,65 @@ class VideoAnnotationTool:
         self.load_selected_video()
 
     def load_selected_video(self):
+        """Load and display the selected video with full state reset and threading."""
+        self.stop_video()  # Stop any existing video playback
+        self.frames.clear()
+        self.frame_index = 0
+        self.frame_label.config(image='', text='Loading...')
+        self.current_video_var.set("No video loaded")
+        self.qa_listbox.delete(0, END)
+        self.current_video_qa = []
+        self.accepted_var.set("0")
+        self.rejected_var.set("0")
+        self.root.update_idletasks()
+
         selection = self.video_listbox.curselection()
         if not selection:
             messagebox.showwarning("Warning", "Please select a video file.")
             return
+
         video_file = self.video_listbox.get(selection[0])
         video_path = os.path.join(self.base_directory, video_file)
         self.current_video_path = video_path
         self.current_video_var.set(f"Current: {video_file}")
-        # Show QAs for current video
+
         self.show_qa_for_current_video()
-        # Load video
+
         if self.mode == "frame":
-            self.load_video_frames(video_path)
+            threading.Thread(target=self.load_video_frames_safe, args=(video_path,), daemon=True).start()
         else:
             self.play_video(video_path)
 
-    def switch_mode(self):
-        if self.mode == "video":
-            self.mode = "frame"
-            self.switch_btn.config(text="Switch to Video Analysis")
-            self.stop_video()
-            self.video_controls_frame.pack_forget()
-            self.controls_frame.pack(pady=10)
-            if self.current_video_path:
-                self.load_video_frames(self.current_video_path)
-        else:
-            self.mode = "video"
-            self.switch_btn.config(text="Switch to Frame Analysis")
-            self.controls_frame.pack_forget()
-            self.video_controls_frame.pack(pady=10)
-            if self.current_video_path:
-                self.play_video(self.current_video_path)
-
-    def load_video_frames(self, path):
-        self.frames.clear()
-        self.frame_index = 0
+    def load_video_frames_safe(self, path):
+        """Load video frames in a background thread and update UI safely."""
         try:
             cap = cv2.VideoCapture(path)
             if not cap.isOpened():
-                messagebox.showerror("Error", "Could not open video file.")
+                self.root.after(0, lambda: messagebox.showerror("Error", "Could not open video file."))
                 return
+
+            local_frames = []
             while True:
                 ret, frame = cap.read()
                 if not ret:
                     break
                 frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                 img = Image.fromarray(frame_rgb)
-                self.frames.append(img)
+                local_frames.append(img)
             cap.release()
-            if self.frames:
+
+            if not local_frames:
+                self.root.after(0, lambda: messagebox.showerror("Error", "No frames extracted from video."))
+                return
+
+            def finish_loading():
+                self.frames = local_frames
                 self.show_frame(0)
-            else:
-                messagebox.showerror("Error", "No frames extracted from video.")
+
+            self.root.after(0, finish_loading)
+
         except Exception as e:
-            messagebox.showerror("Error", str(e))
+            self.root.after(0, lambda: messagebox.showerror("Error", f"Error loading video: {e}"))
 
     def show_frame(self, idx):
         if not self.frames:
@@ -341,18 +426,33 @@ class VideoAnnotationTool:
     def load_csv(self):
         csv_path = filedialog.askopenfilename(filetypes=[("CSV files", "*.csv")])
         if csv_path:
-            self.csv_file_path = csv_path
-            self.rejected_csv_file_path = os.path.join(
-                os.path.dirname(csv_path),
-                "rejected_" + os.path.basename(csv_path)
-            )
-            self.csv_status_var.set(f"Loaded: {os.path.basename(csv_path)}")
-            self.qa_data = []
-            with open(csv_path, newline='', encoding='utf-8') as f:
-                reader = csv.DictReader(f)
-                for row in reader:
-                    self.qa_data.append(row)
-            self.show_qa_for_current_video()
+            try:
+                self.csv_file_path = csv_path
+                self.rejected_csv_file_path = os.path.join(
+                    os.path.dirname(csv_path),
+                    "rejected_" + os.path.basename(csv_path)
+                )
+                self.csv_status_var.set(f"Loaded: {os.path.basename(csv_path)}")
+                self.qa_data = []
+                
+                with open(csv_path, newline='', encoding='utf-8') as f:
+                    reader = csv.DictReader(f)
+                    # Check what columns are available
+                    fieldnames = reader.fieldnames
+                    print(f"CSV columns found: {fieldnames}")
+                    
+                    for row in reader:
+                        self.qa_data.append(row)
+                
+                print(f"Loaded {len(self.qa_data)} rows from CSV")
+                if self.qa_data:
+                    print(f"Sample row: {self.qa_data[0]}")
+                
+                self.show_qa_for_current_video()
+                
+            except Exception as e:
+                messagebox.showerror("Error", f"Could not load CSV file: {str(e)}")
+                print(f"CSV loading error: {e}")
 
     def show_qa_for_current_video(self):
         self.qa_listbox.delete(0, END)
@@ -361,33 +461,62 @@ class VideoAnnotationTool:
             self.accepted_var.set("0")
             self.rejected_var.set("0")
             return
+        
         video_file_name = os.path.basename(self.current_video_path)
+        
         for qa in self.qa_data:
-            if qa["video_file_path"] == video_file_name:
+            # Handle different possible column names for video file
+            video_file = qa.get("video_file_path") or qa.get("video_file") or qa.get("video_path") or qa.get("file_name") or ""
+            
+            if video_file == video_file_name:
                 self.current_video_qa.append(qa)
-                qtext = f'[{qa["category"]}] {qa["question"]} (Ans: {qa["answer"]})'
+                # Handle different possible column names
+                category = qa.get("category", "Unknown")
+                question = qa.get("question", "No question")
+                answer = qa.get("answer", "No answer")
+                qtext = f'[{category}] {question} (Ans: {answer})'
                 self.qa_listbox.insert(END, qtext)
+        
         # Calculate number rejected by scanning the rejected file
         n_rejected = 0
         if os.path.exists(self.rejected_csv_file_path):
-            with open(self.rejected_csv_file_path, newline='', encoding='utf-8') as f:
-                reader = csv.DictReader(f)
-                for row in reader:
-                    if row["video_file_path"] == video_file_name:
-                        n_rejected += 1
+            try:
+                with open(self.rejected_csv_file_path, newline='', encoding='utf-8') as f:
+                    reader = csv.DictReader(f)
+                    for row in reader:
+                        video_file = row.get("video_file_path") or row.get("video_file") or row.get("video_path") or row.get("file_name") or ""
+                        if video_file == video_file_name:
+                            n_rejected += 1
+            except Exception as e:
+                print(f"Error reading rejected CSV: {e}")
+        
         self.rejected_var.set(str(n_rejected))
         self.accepted_var.set("0") 
-
 
     def accept_annotation(self):
         selected = self.qa_listbox.curselection()
         if not selected:
             messagebox.showinfo("Accept", "No question selected.")
             return
-        # Just increment counter, do NOT remove anything
-        self.accepted_var.set(str(int(self.accepted_var.get()) + len(selected)))
-        messagebox.showinfo("Accept", f"Accepted: {len(selected)} questions")
-        # No file changes!
+        
+        # Add selected Q&A pairs to accepted list
+        newly_accepted = []
+        for i in selected:
+            qa = self.current_video_qa[i]
+            # Avoid duplicates
+            if qa not in self.accepted_qa_data:
+                self.accepted_qa_data.append(qa)
+                newly_accepted.append(qa)
+        
+        # Update counter
+        self.accepted_var.set(str(int(self.accepted_var.get()) + len(newly_accepted)))
+        
+        if newly_accepted:
+            messagebox.showinfo("Accept", f"Accepted: {len(newly_accepted)} new questions\nTotal accepted: {len(self.accepted_qa_data)}")
+        else:
+            messagebox.showinfo("Accept", f"Selected questions were already accepted.\nTotal accepted: {len(self.accepted_qa_data)}")
+        
+        print(f"Total accepted Q&A pairs: {len(self.accepted_qa_data)}")
        
     def reject_annotation(self):
         selected = self.qa_listbox.curselection()
@@ -399,7 +528,6 @@ class VideoAnnotationTool:
         self.append_qa_to_csv(self.rejected_csv_file_path, to_reject)
         self.rejected_var.set(str(int(self.rejected_var.get()) + len(selected)))
         messagebox.showinfo("Reject", f"Rejected: {len(to_reject)} questions")
-
 
     def write_qa_to_csv(self, path, qa_list):
         fieldnames = ["index", "video_file_path", "question", "category", "answer"]
@@ -431,7 +559,201 @@ class VideoAnnotationTool:
         messagebox.showinfo("CSV", "Save CSV functionality would go here")
 
     def export_summary(self):
-        messagebox.showinfo("Export", "qa-generation functionality would go here")
+         messagebox.showinfo("Export", "qa-generation functionality would go here")
+    
+    # ------------------ PROMPT BUILDER METHODS -------------------
+    def build_qwen(self, video_path, question, answer, num_frames=10):
+        return {
+            "conversations": [
+                {"role": "system", "content": "You are a helpful assistant."},
+                {"role": "user", "content": [
+                    {"type": "video",
+                     "video": {"video_path": video_path,
+                               "fps": 1,
+                               "max_frames": num_frames}},
+                    {"type": "text", "text": question}
+                ]},
+                {"role": "assistant", "content": [{"type": "text", "text": answer}]}
+            ]
+        }
+
+    def build_llava(self, video_path, question, answer, num_frames=10):
+        prompt = f"USER: {question}\n<|video|>\nASSISTANT:"
+        return {
+            "prompt": prompt,
+            "answer": answer,
+            "video_path": video_path
+        }
+
+    def build_llama2(self, video_path, question, answer, num_frames=10):
+        return {
+            "conversations": [
+                {"role": "system", "content": "You are a helpful assistant."},
+                {"role": "user", "content": [
+                    {"type": "video", "video": {"video_path": video_path, "fps": 1, "max_frames": num_frames}},
+                    {"type": "text", "text": question}
+                ]},
+                {"role": "assistant", "content": [
+                    {"type": "text", "text": answer}
+                ]}
+            ]
+        }
+
+    def save_chat_template_selection(self):
+        """Converts only the ACCEPTED Q&A currently visible in the GUI to the currently chosen template and stores them in memory."""
+        if not self.current_video_qa:
+            messagebox.showinfo("Save", "No QA visible for this video.")
+            return
+
+        # Filter current video Q&A for only accepted ones
+        current_video_accepted = []
+        for qa in self.current_video_qa:
+            if qa in self.accepted_qa_data:
+                current_video_accepted.append(qa)
+        
+        if not current_video_accepted:
+            messagebox.showwarning("No Accepted Rows", "No accepted Q&A pairs found for the current video.\nPlease accept some questions first.")
+            return
+
+        choice = self.template_var.get()           # "1" / "2" / "3" / "4"
+        templates = ["1", "2", "3"] if choice == "4" else [choice]
+
+        added = 0
+        for qa in current_video_accepted:
+            vpath = self.current_video_path
+            # Handle different possible column names
+            q = qa.get("question", "")
+            a = qa.get("answer", "")
+            
+            if q and a:  # Only process if we have valid question and answer
+                for t in templates:
+                    obj = self.PROMPT_BUILDERS[t](vpath, q, a, num_frames=4)
+                    self.saved_prompts.append((t, obj))
+                    added += 1
+
+        current_video_name = os.path.basename(self.current_video_path) if self.current_video_path else "current video"
+        template_names = {
+            "1": "VideoLLaMA2",
+            "2": "Llava-Next-Video", 
+            "3": "Qwen-VL2-7b-hf",
+            "4": "All templates"
+        }
+        
+        messagebox.showinfo(
+            "Save Template Selection",
+            f"Stored {added} prompt(s) from {len(current_video_accepted)} accepted Q&A pairs for {current_video_name} using {template_names[choice]} template(s) in memory.\n\n"
+            f"Total prompts in memory: {len(self.saved_prompts)}\n\n"
+            "Use 'Finish and Export' to write all saved prompts to disk, or continue selecting more videos."
+        )
+
+    def finish_and_export_chat_template(self):
+        """Exports only ACCEPTED Q&A pairs using a selected prompt template (out of 4 choices)."""
+        if not self.accepted_qa_data:
+            messagebox.showwarning("No Accepted Rows", "No accepted Q&A pairs found.\nPlease accept some questions first before exporting.")
+            return
+
+        # Ask user to select the template to export (1–4)
+        template_choice = self.template_var.get()  
+        if template_choice not in ("1", "2", "3", "4"):
+            messagebox.showerror("Invalid Choice", "Please enter 1, 2, 3, or 4 to select a valid template.")
+            return
+
+        # Ask for output directory
+        out_dir = filedialog.askdirectory(title="Pick export directory")
+        if not out_dir:
+            return
+
+        prompts = []
+        processed_count = 0
+        skipped_count = 0
+
+        for qa in self.accepted_qa_data:
+            video_file = qa.get("video_file_path") or qa.get("video_file") or qa.get("video_path") or qa.get("file_name") or ""
+            vpath = os.path.join(self.video_dir, video_file) if video_file else ""
+
+            q = qa.get("question", "")
+            a = qa.get("answer", "")
+
+            if vpath and q and a:
+                if template_choice == "4":  # All templates
+                    for template_id in ["1", "2", "3"]:
+                        prompts.append({
+                            "template": template_id,
+                            "data": self.PROMPT_BUILDERS[template_id](vpath, q, a, num_frames=4)
+                        })
+                else:
+                    prompts.append({
+                        "template": template_choice,
+                        "data": self.PROMPT_BUILDERS[template_choice](vpath, q, a, num_frames=4)
+                    })
+                processed_count += 1
+            else:
+                skipped_count += 1
+
+        # Write selected template file(s)
+        if prompts:
+            if template_choice == "4":  # Export all templates
+                # Group by template
+                template_groups = {"1": [], "2": [], "3": []}
+                for prompt in prompts:
+                    template_groups[prompt["template"]].append(prompt["data"])
+                
+                # Write separate files for each template
+                files_written = []
+                for template_id, template_prompts in template_groups.items():
+                    if template_prompts:
+                        fname = f"model_train_{self.FILE_SUFFIX[template_id]}.jsonl"
+                        fpath = os.path.join(out_dir, fname)
+                        try:
+                            with open(fpath, "w", encoding="utf-8") as fout:
+                                for obj in template_prompts:
+                                    fout.write(json.dumps(obj, ensure_ascii=False) + "\n")
+                            files_written.append(fname)
+                        except Exception as exc:
+                            messagebox.showerror("Export Error", f"Failed to write file {fname}: {exc}")
+                            return
+                
+                messagebox.showinfo(
+                    "Export Complete",
+                    f"All Templates Export Completed!\n\n"
+                    f"Processed: {processed_count}\n"
+                    f"Skipped: {skipped_count}\n"
+                    f"Files exported: {', '.join(files_written)}"
+                )
+            else:
+                # Single template export
+                fname = f"model_train_{self.FILE_SUFFIX[template_choice]}.jsonl"
+                fpath = os.path.join(out_dir, fname)
+                try:
+                    with open(fpath, "w", encoding="utf-8") as fout:
+                        for prompt in prompts:
+                            fout.write(json.dumps(prompt["data"], ensure_ascii=False) + "\n")
+                    
+                    template_names = {
+                        "1": "VideoLLaMA2",
+                        "2": "Llava-Next-Video", 
+                        "3": "Qwen-VL2-7b-hf"
+                    }
+                    
+                    messagebox.showinfo(
+                        "Export Complete",
+                        f"Accepted Q&A Export Completed!\n\n"
+                        f"Template used: {template_names[template_choice]}\n"
+                        f"Processed: {processed_count}\n"
+                        f"Skipped: {skipped_count}\n"
+                        f"Exported to: {fname}"
+                    )
+                except Exception as exc:
+                    messagebox.showerror("Export Error", f"Failed to write file: {exc}")
+                    return
+        else:
+            messagebox.showwarning("Export Failed", "No valid prompts to export for the selected template.")
+
+        if self.saved_prompts:
+            self.saved_prompts.clear()
+            print("Cleared saved prompts from memory after export")
+
+
 
 # Main application
 if __name__ == "__main__":
