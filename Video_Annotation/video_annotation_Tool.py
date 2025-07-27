@@ -158,12 +158,14 @@ class AsyncVideoAnnotationTool:
         self.csv_status_var = StringVar(value="None loaded")
         Label(self.right_panel, textvariable=self.csv_status_var, bg="lightgray", 
               font=("Arial", 8), wraplength=180).pack(pady=5, padx=10)
+
         
         Label(self.right_panel, text="Export Options:", bg="lightgray", font=("Arial", 9, "bold")).pack(pady=(20, 5))
         Button(self.right_panel, text="Save CSV", command=self.save_csv, width=18).pack(pady=5)
-        Button(self.right_panel, text="Export Summary", command=self.export_summary, width=18).pack(pady=5)
+        Button(self.right_panel, text="QA Generation", command=self.export_summary, width=18).pack(pady=5)
         
         Label(self.right_panel, text="Statistics:", bg="lightgray", font=("Arial", 9, "bold")).pack(pady=(20, 5))
+
         self.stats_frame = Frame(self.right_panel, bg="white", relief=SUNKEN, bd=1)
         self.stats_frame.pack(pady=5, padx=10, fill=X)
         
@@ -775,9 +777,14 @@ class AsyncVideoAnnotationTool:
         messagebox.showinfo("CSV", "Save CSV functionality would go here")
 
     def export_summary(self):
-        messagebox.showinfo("Export", "Export summary functionality would go here")
+
+         messagebox.showinfo("Export", "qa-generation functionality would go here")
 
     # Prompt Builder Methods
+
+    
+    # ------------------ PROMPT BUILDER METHODS -------------------
+
     def build_qwen(self, video_path, question, answer, num_frames=10):
         return {
             "conversations": [
@@ -1000,6 +1007,7 @@ class AsyncVideoAnnotationTool:
         print("Application shutting down...")
         self.stop_current_thread()
         self.cleanup_resources()
+
 
 
 if __name__ == "__main__":
