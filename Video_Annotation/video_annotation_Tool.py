@@ -14,29 +14,69 @@ from functools import wraps
 import torch
 from segment_anything import sam_model_registry, SamPredictor
 
-SAM_CHECKPOINT_PATH = "sam_vit_l_0b3195.pth"
+SAM_CHECKPOINT_PATH = "sam_vit_h_4b8939.pth"
 
 class CircleSelector(Toplevel):
     def __init__(self, parent, pil_image, on_confirm):
         super().__init__(parent)
-        self.title("Draw Circle to blur")
+        self.title("Draw Circle to Blur Object")
         self.on_confirm = on_confirm
         
-        # Store the original image for display
-        self.original_image = pil_image
+        # Fixed window dimensions
+        self.window_width = 800
+        self.window_height = 600
+        self.canvas_width = 780
+        self.canvas_height = 500
         
-        # Create canvas
-        self.canvas = Canvas(self, width=pil_image.width, height=pil_image.height)
+        # Set window size and center it
+        self.geometry(f"{self.window_width}x{self.window_height}")
+        self.resizable(False, False)
+        
+        # Store the original image and create scaled version
+        self.original_image = pil_image
+        self.scale_factor_x = pil_image.width / self.canvas_width
+        self.scale_factor_y = pil_image.height / self.canvas_height
+        
+        # Scale image to fit canvas while maintaining aspect ratio
+        self.scaled_image = self.scale_image_to_fit(pil_image)
+        
+        # Instructions at top
+        instruction_frame = Frame(self, bg="lightblue", height=80)
+        instruction_frame.pack(fill=X, pady=5, padx=10)
+        instruction_frame.pack_propagate(False)
+        
+        Label(instruction_frame, text="Instructions:", font=("Arial", 11, "bold"), 
+              bg="lightblue").pack()
+        Label(instruction_frame, text="1. Click and drag to draw a circle around the object", 
+              font=("Arial", 10), bg="lightblue").pack()
+        Label(instruction_frame, text="2. Release mouse button to finish drawing", 
+              font=("Arial", 10), bg="lightblue").pack()
+        Label(instruction_frame, text="3. You can draw multiple circles to select different objects", 
+              font=("Arial", 10), bg="lightblue").pack()
+        
+        # Create canvas with fixed size
+        canvas_frame = Frame(self, relief=SUNKEN, bd=2)
+        canvas_frame.pack(pady=10, padx=10)
+        
+        self.canvas = Canvas(canvas_frame, width=self.canvas_width, height=self.canvas_height, 
+                           bg="white", highlightthickness=1, highlightbackground="gray")
         self.canvas.pack()
         
-        # Display the image
-        self.img_tk = ImageTk.PhotoImage(pil_image)
-        self.canvas.create_image(0, 0, anchor=NW, image=self.img_tk)
+        # Display the scaled image
+        self.img_tk = ImageTk.PhotoImage(self.scaled_image)
+        self.canvas.create_image(self.canvas_width//2, self.canvas_height//2, image=self.img_tk)
         
         # Circle drawing state
-        self.center = None
-        self.radius = None
-        self.circle = None
+        self.circles = []  # Store all circles as (center, radius, canvas_object)
+        self.current_circle = None
+        self.is_drawing = False
+        self.start_pos = None
+        
+        # Status label
+        self.status_var = StringVar(value="Ready - Click and drag to draw circle(s)")
+        self.status_label = Label(self, textvariable=self.status_var, font=("Arial", 10), 
+                                fg="blue", bg="lightyellow", relief=SUNKEN)
+        self.status_label.pack(fill=X, pady=5, padx=10)
         
         # Bind mouse events
         self.canvas.bind("<Button-1>", self.start_circle)
@@ -45,46 +85,183 @@ class CircleSelector(Toplevel):
         
         # Control buttons
         button_frame = Frame(self)
-        button_frame.pack(pady=10)
+        button_frame.pack(pady=15)
         
-        self.process_btn = Button(button_frame, text="Process", command=self.confirm)
-        self.process_btn.pack(side=LEFT, padx=5)
+        self.process_btn = Button(button_frame, text="✓ Process Video", command=self.confirm,
+                                bg="lightgreen", font=("Arial", 11, "bold"), width=15, height=2)
+        self.process_btn.pack(side=LEFT, padx=10)
+        self.process_btn.config(state=DISABLED)  # Disabled until circle is drawn
         
-        self.cancel_btn = Button(button_frame, text="Cancel", command=self.destroy)
-        self.cancel_btn.pack(side=LEFT, padx=5)
+        self.clear_btn = Button(button_frame, text="🗑 Clear All Circles", command=self.clear_all_circles,
+                              bg="lightyellow", font=("Arial", 11), width=15, height=2)
+        self.clear_btn.pack(side=LEFT, padx=10)
+        self.clear_btn.config(state=DISABLED)
         
-        # Instructions
-        Label(self, text="Click and drag to draw a circle around the object to blur", 
-              font=("Arial", 10)).pack(pady=5)
+        self.undo_btn = Button(button_frame, text="↶ Undo Last", command=self.undo_last_circle,
+                             bg="lightcyan", font=("Arial", 11), width=15, height=2)
+        self.undo_btn.pack(side=LEFT, padx=10)
+        self.undo_btn.config(state=DISABLED)
+        
+        self.cancel_btn = Button(button_frame, text="✗ Cancel", command=self.destroy,
+                               bg="lightcoral", font=("Arial", 11), width=15, height=2)
+        self.cancel_btn.pack(side=LEFT, padx=10)
+        
+        # Center the window
+        self.center_window()
+
+    def scale_image_to_fit(self, image):
+        """Scale image to fit canvas while maintaining aspect ratio"""
+        img_width, img_height = image.size
+        
+        # Calculate scale factor to fit within canvas
+        scale_x = self.canvas_width / img_width
+        scale_y = self.canvas_height / img_height
+        scale = min(scale_x, scale_y)  # Use smaller scale to maintain aspect ratio
+        
+        new_width = int(img_width * scale)
+        new_height = int(img_height * scale)
+        
+        scaled_image = image.resize((new_width, new_height), Image.Resampling.LANCZOS)
+        
+        # Update scale factors for coordinate conversion
+        self.actual_scale_x = img_width / new_width
+        self.actual_scale_y = img_height / new_height
+        
+        return scaled_image
+
+    def center_window(self):
+        """Center the window on screen"""
+        self.update_idletasks()
+        x = (self.winfo_screenwidth() // 2) - (self.window_width // 2)
+        y = (self.winfo_screenheight() // 2) - (self.window_height // 2)
+        self.geometry(f"{self.window_width}x{self.window_height}+{x}+{y}")
 
     def start_circle(self, event):
-        self.center = (event.x, event.y)
-        self.radius = 0
-        if self.circle:
-            self.canvas.delete(self.circle)
-        self.circle = self.canvas.create_oval(event.x, event.y, event.x, event.y, 
-                                             outline="red", width=3)
+        """Start drawing a new circle"""
+        self.start_pos = (event.x, event.y)
+        self.is_drawing = True
+        
+        # Create new circle
+        self.current_circle = self.canvas.create_oval(
+            event.x, event.y, event.x, event.y, 
+            outline="red", width=3, fill="", stipple=""
+        )
+        
+        self.status_var.set("Drawing circle... Release to finish")
 
     def draw_circle(self, event):
-        if self.center:
-            r = ((event.x - self.center[0])**2 + (event.y - self.center[1])**2)**0.5
-            self.radius = r
-            x0 = self.center[0] - r
-            y0 = self.center[1] - r
-            x1 = self.center[0] + r
-            y1 = self.center[1] + r
-            self.canvas.coords(self.circle, x0, y0, x1, y1)
+        """Update circle while dragging"""
+        if not self.is_drawing or not self.start_pos:
+            return
+            
+        # Calculate radius
+        dx = event.x - self.start_pos[0]
+        dy = event.y - self.start_pos[1]
+        radius = (dx**2 + dy**2)**0.5
+        
+        # Update circle coordinates
+        x0 = self.start_pos[0] - radius
+        y0 = self.start_pos[1] - radius
+        x1 = self.start_pos[0] + radius
+        y1 = self.start_pos[1] + radius
+        
+        self.canvas.coords(self.current_circle, x0, y0, x1, y1)
 
     def end_circle(self, event):
-        self.draw_circle(event)
+        """Finish drawing current circle"""
+        if not self.is_drawing or not self.start_pos:
+            return
+            
+        # Calculate final radius
+        dx = event.x - self.start_pos[0]
+        dy = event.y - self.start_pos[1]
+        radius = (dx**2 + dy**2)**0.5
+        
+        # Only keep circles with minimum radius
+        if radius >= 5:
+            # Convert canvas coordinates to original image coordinates
+            original_center = (
+                int(self.start_pos[0] * self.actual_scale_x),
+                int(self.start_pos[1] * self.actual_scale_y)
+            )
+            original_radius = int(radius * max(self.actual_scale_x, self.actual_scale_y))
+            
+            # Store circle info: (center, radius, canvas_object)
+            self.circles.append((original_center, original_radius, self.current_circle))
+            
+            # Update status
+            self.status_var.set(f"Circle {len(self.circles)} added - Click and drag to add more circles")
+            
+            # Enable buttons
+            self.update_button_states()
+        else:
+            # Remove circle if too small
+            self.canvas.delete(self.current_circle)
+            self.status_var.set("Circle too small - Try again with a larger circle")
+        
+        # Reset drawing state
+        self.is_drawing = False
+        self.start_pos = None
+        self.current_circle = None
+
+    def clear_all_circles(self):
+        """Clear all circles"""
+        for _, _, canvas_obj in self.circles:
+            self.canvas.delete(canvas_obj)
+        
+        self.circles.clear()
+        self.status_var.set("All circles cleared - Click and drag to draw new circles")
+        self.update_button_states()
+
+    def undo_last_circle(self):
+        """Remove the last drawn circle"""
+        if self.circles:
+            _, _, canvas_obj = self.circles.pop()
+            self.canvas.delete(canvas_obj)
+            
+            if self.circles:
+                self.status_var.set(f"{len(self.circles)} circle(s) remaining - Click and drag to add more")
+            else:
+                self.status_var.set("All circles removed - Click and drag to draw new circles")
+            
+            self.update_button_states()
+
+    def update_button_states(self):
+        """Update button states based on current circles"""
+        has_circles = len(self.circles) > 0
+        
+        # Enable/disable buttons based on whether we have circles
+        self.process_btn.config(state=NORMAL if has_circles else DISABLED)
+        self.clear_btn.config(state=NORMAL if has_circles else DISABLED)
+        self.undo_btn.config(state=NORMAL if has_circles else DISABLED)
+        
+        # Update process button text to show number of circles
+        if has_circles:
+            self.process_btn.config(text=f"✓ Process {len(self.circles)} Circle(s)")
+        else:
+            self.process_btn.config(text="✓ Process Video")
 
     def confirm(self):
-        if self.center and self.radius and self.radius > 5:  # Minimum radius check
-            self.on_confirm(self.center, self.radius)
+        """Confirm selection and start processing"""
+        if not self.circles:
+            messagebox.showerror("Error", "Please draw at least one circle first")
+            return
+            
+        # Show confirmation dialog
+        circle_count = len(self.circles)
+        result = messagebox.askyesno(
+            "Confirm Processing", 
+            f"Ready to process video with {circle_count} selected region(s)?\n\n"
+            "This will blur all selected areas using SAM segmentation.\n"
+            "Processing may take several minutes depending on video length."
+        )
+        
+        if result:
+            # Pass all circles to the callback
+            self.on_confirm(self.circles)
             self.destroy()
         else:
-            messagebox.showerror("Error", "Please draw a circle with sufficient size first")
-
+            self.status_var.set(f"{circle_count} circle(s) ready - Click 'Process' when ready")
 
 def run_sam_on_circle(image_bgr, center, radius, model_path=SAM_CHECKPOINT_PATH, device='cpu'):
     """Run SAM model on the selected circle area"""
@@ -983,31 +1160,34 @@ class AsyncVideoAnnotationTool:
             pil_image = Image.fromarray(first_frame_rgb)
             
             # Show circle selector
-            def on_circle_confirm(center, radius):
-                print(f"Circle selected - Center: {center}, Radius: {radius}")
-                self.start_blur_and_track_process(center, radius)
+            def on_circles_confirm(circles):
+                print(f"Multiple circles selected: {len(circles)} circles")
+                for i, (center, radius, _) in enumerate(circles):
+                    print(f"Circle {i+1} - Center: {center}, Radius: {radius}")
+                self.start_blur_and_track_process_multiple(circles)
             
-            CircleSelector(self.root, pil_image, on_circle_confirm)
+            CircleSelector(self.root, pil_image, on_circles_confirm)
             
         except Exception as e:
             messagebox.showerror("Error", f"Failed to start blur and track: {str(e)}")
 
-    def start_blur_and_track_process(self, center, radius):
-        """Start the blur and track process in a separate thread"""
-        self.status_var.set("Starting SAM blur and track...")
+    def start_blur_and_track_process_multiple(self, circles):
+        """Start the blur and track process for multiple circles in a separate thread"""
+        self.status_var.set("Starting SAM blur and track for multiple objects...")
         
         def blur_track_thread():
             try:
-                self.blur_and_track_sam(center, radius)
+                self.blur_and_track_sam_multiple(circles)
             except Exception as e:
                 self.root.after(0, lambda: messagebox.showerror("Error", f"Blur and track failed: {str(e)}"))
                 self.root.after(0, lambda: self.status_var.set("Blur and track failed"))
         
         threading.Thread(target=blur_track_thread, daemon=True).start()
 
-    def blur_and_track_sam(self, center, radius):
-        """Blur and track using SAM with optical flow"""
-        print(f"Starting SAM blur and track with center={center}, radius={radius}")
+    def blur_and_track_sam_multiple(self, circles):
+        """Blur and track multiple objects using SAM with optical flow"""
+        circle_count = len(circles)
+        print(f"Starting SAM blur and track for {circle_count} circles")
         
         # Load video
         cap = cv2.VideoCapture(self.current_video_path)
@@ -1023,7 +1203,7 @@ class AsyncVideoAnnotationTool:
         print(f"Video properties - FPS: {fps}, Size: {frame_width}x{frame_height}, Frames: {total_frames}")
         
         # Prepare output video
-        output_path = os.path.splitext(self.current_video_path)[0] + "_sam_blur.mp4"
+        output_path = os.path.splitext(self.current_video_path)[0] + f"_sam_blur_{circle_count}objects.mp4"
         fourcc = cv2.VideoWriter_fourcc(*'mp4v')
         out = cv2.VideoWriter(output_path, fourcc, fps, (frame_width, frame_height))
         
@@ -1032,7 +1212,7 @@ class AsyncVideoAnnotationTool:
             raise Exception("Could not create output video file")
         
         # Update status
-        self.root.after(0, lambda: self.status_var.set("Running SAM on first frame..."))
+        self.root.after(0, lambda: self.status_var.set(f"Running SAM on first frame for {circle_count} objects..."))
         
         # Read first frame
         ret, first_frame = cap.read()
@@ -1041,32 +1221,44 @@ class AsyncVideoAnnotationTool:
             out.release()
             raise Exception("Could not read first frame")
         
-        # Run SAM on first frame
+        # Run SAM on first frame for all circles
         device = 'cuda' if torch.cuda.is_available() else 'cpu'
         print(f"Using device: {device}")
         
-        mask = run_sam_on_circle(first_frame, center, radius, model_path=SAM_CHECKPOINT_PATH, device=device)
-        if mask is None:
+        # Initialize masks for each circle
+        masks = []
+        for i, (center, radius, _) in enumerate(circles):
+            print(f"Running SAM for circle {i+1}/{circle_count} at center {center} with radius {radius}")
+            mask = run_sam_on_circle(first_frame, center, radius, model_path=SAM_CHECKPOINT_PATH, device=device)
+            if mask is None:
+                print(f"Warning: SAM failed for circle {i+1}, skipping this object")
+                continue
+            
+            # Convert mask to uint8
+            mask = mask.astype(np.uint8) * 255
+            masks.append((center, radius, mask))
+            print(f"Generated mask {i+1} with shape: {mask.shape}")
+        
+        if not masks:
             cap.release()
             out.release()
-            raise Exception("SAM failed to generate mask")
+            raise Exception("SAM failed to generate any valid masks")
         
-        # Convert mask to uint8
-        mask = mask.astype(np.uint8) * 255
-        print(f"Generated initial mask with shape: {mask.shape}")
+        print(f"Successfully generated {len(masks)} masks out of {circle_count} circles")
         
-        # Process first frame
-        blurred_frame = self._blur_mask(first_frame, mask)
+        # Process first frame - combine all masks
+        combined_mask = self._combine_masks([mask for _, _, mask in masks])
+        blurred_frame = self._blur_mask(first_frame, combined_mask)
         out.write(blurred_frame)
         
         # Prepare for optical flow tracking
         prev_gray = cv2.cvtColor(first_frame, cv2.COLOR_BGR2GRAY)
-        prev_mask = mask.copy()
+        prev_masks = [mask.copy() for _, _, mask in masks]
         
         frame_count = 1
         sam_rerun_interval = 30  # Re-run SAM every 30 frames to correct drift
         
-        self.root.after(0, lambda: self.status_var.set(f"Processing frames with optical flow..."))
+        self.root.after(0, lambda: self.status_var.set(f"Processing frames with optical flow for {len(masks)} objects..."))
         
         while True:
             ret, frame = cap.read()
@@ -1077,7 +1269,7 @@ class AsyncVideoAnnotationTool:
             
             # Update progress
             if frame_count % 50 == 0:
-                progress = f"Processing frame {frame_count}/{total_frames}"
+                progress = f"Processing frame {frame_count}/{total_frames} ({len(masks)} objects)"
                 self.root.after(0, lambda p=progress: self.status_var.set(p))
                 print(progress)
             
@@ -1091,61 +1283,92 @@ class AsyncVideoAnnotationTool:
                 iterations=3, poly_n=5, poly_sigma=1.2, flags=0
             )
             
-            # Apply flow to mask
-            h, w = prev_mask.shape
+            # Apply flow to each mask
+            h, w = prev_masks[0].shape
             flow_map = np.indices((h, w)).astype(np.float32)
             flow_map[0] += flow[..., 1]  # y-flow
             flow_map[1] += flow[..., 0]  # x-flow
             
-            # Remap the mask
-            new_mask = cv2.remap(
-                prev_mask, flow_map[1], flow_map[0], 
-                interpolation=cv2.INTER_NEAREST, 
-                borderMode=cv2.BORDER_CONSTANT, borderValue=0
-            )
+            new_masks = []
+            for i, prev_mask in enumerate(prev_masks):
+                # Remap the mask
+                new_mask = cv2.remap(
+                    prev_mask, flow_map[1], flow_map[0], 
+                    interpolation=cv2.INTER_NEAREST, 
+                    borderMode=cv2.BORDER_CONSTANT, borderValue=0
+                )
+                new_masks.append(new_mask)
             
             # Re-run SAM periodically to correct drift
             if frame_count % sam_rerun_interval == 0:
-                try:
-                    print(f"Re-running SAM at frame {frame_count}")
-                    # Find new center from current mask
-                    moments = cv2.moments(new_mask)
-                    if moments["m00"] > 0:
-                        new_center = (
-                            int(moments["m10"] / moments["m00"]),
-                            int(moments["m01"] / moments["m00"])
-                        )
-                        sam_mask = run_sam_on_circle(frame, new_center, radius, 
-                                                   model_path=SAM_CHECKPOINT_PATH, device=device)
-                        if sam_mask is not None:
-                            new_mask = (sam_mask.astype(np.uint8) * 255)
-                            print(f"SAM correction applied at frame {frame_count}")
-                except Exception as e:
-                    print(f"SAM re-run failed at frame {frame_count}: {e}")
-                    # Continue with optical flow mask
+                print(f"Re-running SAM at frame {frame_count} for {len(masks)} objects")
+                corrected_masks = []
+                
+                for i, ((original_center, original_radius, _), new_mask) in enumerate(zip(masks, new_masks)):
+                    try:
+                        # Find new center from current mask
+                        moments = cv2.moments(new_mask)
+                        if moments["m00"] > 0:
+                            new_center = (
+                                int(moments["m10"] / moments["m00"]),
+                                int(moments["m01"] / moments["m00"])
+                            )
+                            sam_mask = run_sam_on_circle(frame, new_center, original_radius, 
+                                                       model_path=SAM_CHECKPOINT_PATH, device=device)
+                            if sam_mask is not None:
+                                corrected_mask = (sam_mask.astype(np.uint8) * 255)
+                                corrected_masks.append(corrected_mask)
+                                print(f"SAM correction applied for object {i+1} at frame {frame_count}")
+                                continue
+                    except Exception as e:
+                        print(f"SAM re-run failed for object {i+1} at frame {frame_count}: {e}")
+                    
+                    # If SAM failed, use optical flow mask
+                    corrected_masks.append(new_mask)
+                
+                new_masks = corrected_masks
             
-            # Apply blur to masked region
-            blurred_frame = self._blur_mask(frame, new_mask)
+            # Combine all masks and apply blur
+            combined_mask = self._combine_masks(new_masks)
+            blurred_frame = self._blur_mask(frame, combined_mask)
             out.write(blurred_frame)
             
             # Update for next iteration
             prev_gray = curr_gray
-            prev_mask = new_mask
+            prev_masks = new_masks
         
         # Cleanup
         cap.release()
         out.release()
         
         # Update UI
+        
         def completion_message():
-            self.status_var.set("Blur and track completed!")
+            self.status_var.set("Multi-object blur and track completed!")
             messagebox.showinfo("Complete", 
-                              f"SAM mask tracked and blurred video saved as:\n{output_path}\n\n"
-                              f"Processed {frame_count} frames")
+                              f"SAM tracked and blurred {len(masks)} objects in video.\n"
+                              f"Processed {frame_count} frames\n\n"
+                              f"Output saved as:\n{output_path}")
         
         self.root.after(0, completion_message)
-        print(f"Blur and track completed. Output saved to: {output_path}")
+        print(f"Multi-object blur and track completed. Output saved to: {output_path}")
 
+    def _combine_masks(self, masks):
+        """Combine multiple masks into a single mask"""
+        if not masks:
+            return None
+            
+        if len(masks) == 1:
+            return masks[0]
+        
+        # Start with first mask
+        combined = masks[0].copy()
+        
+        # Add all other masks using logical OR
+        for mask in masks[1:]:
+            combined = cv2.bitwise_or(combined, mask)
+        
+        return combined
     def _blur_mask(self, frame, mask):
         """Apply blur to masked region of frame"""
         # Create a strong blur
