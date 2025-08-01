@@ -7,9 +7,124 @@ from PIL import Image, ImageTk
 import json
 import threading
 import queue
+import numpy as np
 import time
 import gc
 from functools import wraps
+import torch
+from segment_anything import sam_model_registry, SamPredictor
+
+SAM_CHECKPOINT_PATH = "sam_vit_l_0b3195.pth"
+
+class CircleSelector(Toplevel):
+    def __init__(self, parent, pil_image, on_confirm):
+        super().__init__(parent)
+        self.title("Draw Circle to blur")
+        self.on_confirm = on_confirm
+        
+        # Store the original image for display
+        self.original_image = pil_image
+        
+        # Create canvas
+        self.canvas = Canvas(self, width=pil_image.width, height=pil_image.height)
+        self.canvas.pack()
+        
+        # Display the image
+        self.img_tk = ImageTk.PhotoImage(pil_image)
+        self.canvas.create_image(0, 0, anchor=NW, image=self.img_tk)
+        
+        # Circle drawing state
+        self.center = None
+        self.radius = None
+        self.circle = None
+        
+        # Bind mouse events
+        self.canvas.bind("<Button-1>", self.start_circle)
+        self.canvas.bind("<B1-Motion>", self.draw_circle)
+        self.canvas.bind("<ButtonRelease-1>", self.end_circle)
+        
+        # Control buttons
+        button_frame = Frame(self)
+        button_frame.pack(pady=10)
+        
+        self.process_btn = Button(button_frame, text="Process", command=self.confirm)
+        self.process_btn.pack(side=LEFT, padx=5)
+        
+        self.cancel_btn = Button(button_frame, text="Cancel", command=self.destroy)
+        self.cancel_btn.pack(side=LEFT, padx=5)
+        
+        # Instructions
+        Label(self, text="Click and drag to draw a circle around the object to blur", 
+              font=("Arial", 10)).pack(pady=5)
+
+    def start_circle(self, event):
+        self.center = (event.x, event.y)
+        self.radius = 0
+        if self.circle:
+            self.canvas.delete(self.circle)
+        self.circle = self.canvas.create_oval(event.x, event.y, event.x, event.y, 
+                                             outline="red", width=3)
+
+    def draw_circle(self, event):
+        if self.center:
+            r = ((event.x - self.center[0])**2 + (event.y - self.center[1])**2)**0.5
+            self.radius = r
+            x0 = self.center[0] - r
+            y0 = self.center[1] - r
+            x1 = self.center[0] + r
+            y1 = self.center[1] + r
+            self.canvas.coords(self.circle, x0, y0, x1, y1)
+
+    def end_circle(self, event):
+        self.draw_circle(event)
+
+    def confirm(self):
+        if self.center and self.radius and self.radius > 5:  # Minimum radius check
+            self.on_confirm(self.center, self.radius)
+            self.destroy()
+        else:
+            messagebox.showerror("Error", "Please draw a circle with sufficient size first")
+
+
+def run_sam_on_circle(image_bgr, center, radius, model_path=SAM_CHECKPOINT_PATH, device='cpu'):
+    """Run SAM model on the selected circle area"""
+    try:
+        # Load SAM model
+        sam = sam_model_registry["vit_h"](checkpoint=model_path)
+        sam.to(device)
+        predictor = SamPredictor(sam)
+
+        # Convert BGR to RGB for SAM
+        image_rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
+        predictor.set_image(image_rgb)
+
+        # Create input point and box from circle
+        input_point = [center]
+        input_label = [1]  # 1 means "include this object"
+
+        # Create bounding box from circle
+        box = [
+            max(0, center[0] - radius),
+            max(0, center[1] - radius),
+            min(image_bgr.shape[1], center[0] + radius),
+            min(image_bgr.shape[0], center[1] + radius)
+        ]
+
+        # Get mask from SAM
+        masks, scores, _ = predictor.predict(
+            point_coords=np.array(input_point),
+            point_labels=np.array(input_label),
+            box=np.array(box)[None, :],
+            multimask_output=False,
+        )
+        
+        # Return the best mask
+        return masks[0] if len(masks) > 0 else None
+        
+    except Exception as e:
+        print(f"Error running SAM: {e}")
+        return None
+
 
 class AsyncVideoAnnotationTool:
     def __init__(self, root):
@@ -149,8 +264,8 @@ class AsyncVideoAnnotationTool:
     def setup_right_panel(self):
         Label(self.right_panel, text="CSV File Controls", font=("Arial", 12, "bold"), bg="lightgray").pack(pady=10)
         
-        Button(self.right_panel, text="Create New CSV", bg="lightblue", font=("Arial", 9, "bold"), 
-               width=18, height=2, command=self.create_csv).pack(pady=10)
+        Button(self.right_panel, text="Split Videos", bg="lightblue", font=("Arial", 9, "bold"), 
+               width=18, height=2, command=self.split_videos).pack(pady=10)
         Button(self.right_panel, text="Load Existing CSV", bg="lightyellow", font=("Arial", 9, "bold"), 
                width=18, height=2, command=self.load_csv_async).pack(pady=5)
         
@@ -161,7 +276,7 @@ class AsyncVideoAnnotationTool:
 
         
         Label(self.right_panel, text="Export Options:", bg="lightgray", font=("Arial", 9, "bold")).pack(pady=(20, 5))
-        Button(self.right_panel, text="Save CSV", command=self.save_csv, width=18).pack(pady=5)
+        Button(self.right_panel, text="Blur and Track", command=self.blur_track, width=18).pack(pady=5)
         Button(self.right_panel, text="QA Generation", command=self.export_summary, width=18).pack(pady=5)
         
         Label(self.right_panel, text="Statistics:", bg="lightgray", font=("Arial", 9, "bold")).pack(pady=(20, 5))
@@ -770,21 +885,285 @@ class AsyncVideoAnnotationTool:
                 clean_row = {k: qa.get(k, "") for k in fieldnames}
                 writer.writerow(clean_row)
 
-    def create_csv(self):
-        messagebox.showinfo("CSV", "Create CSV functionality would go here")
+    def split_videos(self):
+        # Ask for source folder (videos)
+        source_directory = filedialog.askdirectory(title="Select folder containing videos")
+        if not source_directory:
+            return
+        self.base_directory = source_directory
+        self.video_dir = source_directory
+        self.dir_var.set(source_directory)
+        self.populate_video_list()
 
-    def save_csv(self):
-        messagebox.showinfo("CSV", "Save CSV functionality would go here")
+        # Ask for output folder (where clips will be saved)
+        output_base_directory = filedialog.askdirectory(title="Select folder to save split video clips")
+        if not output_base_directory:
+            return
+
+        video_extensions = ('.mp4', '.avi', '.mov', '.mkv', '.wmv', '.flv','.moov')
+        videos = []
+
+        try:
+            for file in os.listdir(self.base_directory):
+                if file.lower().endswith(video_extensions):
+                    videos.append(file)
+
+            for video in videos:
+                video_path = os.path.join(self.base_directory, video)
+                cap = cv2.VideoCapture(video_path)
+                if not cap.isOpened():
+                    messagebox.showerror("Error", f"Could not open video file: {video}")
+                    continue
+
+                fps = int(cap.get(cv2.CAP_PROP_FPS))
+                frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+                frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+                frames_per_clip = 10 * fps  # 10-second clips
+
+                # Output: Create a subfolder for each video inside the output base directory
+                output_dir = os.path.join(output_base_directory, f"{os.path.splitext(video)[0]}_clips")
+                os.makedirs(output_dir, exist_ok=True)
+
+                clip_num = 0
+                start_frame = 0
+
+                while start_frame < total_frames:
+                    end_frame = min(start_frame + frames_per_clip, total_frames)
+                    output_filename = os.path.join(output_dir, f"clip_{clip_num:03d}.mp4")
+
+                    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+                    out = cv2.VideoWriter(output_filename, fourcc, fps, (frame_width, frame_height))
+
+                    cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
+                    for i in range(start_frame, end_frame):
+                        ret, frame = cap.read()
+                        if not ret:
+                            break
+                        out.write(frame)
+
+                    print(f"Clip {clip_num} saved: {output_filename}")
+                    out.release()
+                    start_frame = end_frame
+                    clip_num += 1
+
+                cap.release()
+                cv2.destroyAllWindows()
+
+            self.status_var.set(f"Processed {len(videos)} videos.")
+            print(f"Processed {len(videos)} video files.")
+
+        except Exception as e:
+            messagebox.showerror("Error", f"Could not process videos: {str(e)}")
+
+    def blur_track(self):
+        """Start the blur and track process"""
+        if not self.current_video_path:
+            messagebox.showwarning("No Video", "Please load a video first.")
+            return
+            
+        if not os.path.exists(SAM_CHECKPOINT_PATH):
+            messagebox.showerror("SAM Model Missing", 
+                               f"SAM checkpoint not found at: {SAM_CHECKPOINT_PATH}\n"
+                               "Please download the SAM model checkpoint.")
+            return
+        
+        try:
+            # Get first frame for circle selection
+            cap = cv2.VideoCapture(self.current_video_path)
+            ret, first_frame = cap.read()
+            cap.release()
+            
+            if not ret:
+                messagebox.showerror("Error", "Could not read first frame from video.")
+                return
+            
+            # Convert first frame to PIL Image for circle selector
+            first_frame_rgb = cv2.cvtColor(first_frame, cv2.COLOR_BGR2RGB)
+            pil_image = Image.fromarray(first_frame_rgb)
+            
+            # Show circle selector
+            def on_circle_confirm(center, radius):
+                print(f"Circle selected - Center: {center}, Radius: {radius}")
+                self.start_blur_and_track_process(center, radius)
+            
+            CircleSelector(self.root, pil_image, on_circle_confirm)
+            
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to start blur and track: {str(e)}")
+
+    def start_blur_and_track_process(self, center, radius):
+        """Start the blur and track process in a separate thread"""
+        self.status_var.set("Starting SAM blur and track...")
+        
+        def blur_track_thread():
+            try:
+                self.blur_and_track_sam(center, radius)
+            except Exception as e:
+                self.root.after(0, lambda: messagebox.showerror("Error", f"Blur and track failed: {str(e)}"))
+                self.root.after(0, lambda: self.status_var.set("Blur and track failed"))
+        
+        threading.Thread(target=blur_track_thread, daemon=True).start()
+
+    def blur_and_track_sam(self, center, radius):
+        """Blur and track using SAM with optical flow"""
+        print(f"Starting SAM blur and track with center={center}, radius={radius}")
+        
+        # Load video
+        cap = cv2.VideoCapture(self.current_video_path)
+        if not cap.isOpened():
+            raise Exception("Could not open video file")
+            
+        # Get video properties
+        fps = cap.get(cv2.CAP_PROP_FPS)
+        frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        
+        print(f"Video properties - FPS: {fps}, Size: {frame_width}x{frame_height}, Frames: {total_frames}")
+        
+        # Prepare output video
+        output_path = os.path.splitext(self.current_video_path)[0] + "_sam_blur.mp4"
+        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+        out = cv2.VideoWriter(output_path, fourcc, fps, (frame_width, frame_height))
+        
+        if not out.isOpened():
+            cap.release()
+            raise Exception("Could not create output video file")
+        
+        # Update status
+        self.root.after(0, lambda: self.status_var.set("Running SAM on first frame..."))
+        
+        # Read first frame
+        ret, first_frame = cap.read()
+        if not ret:
+            cap.release()
+            out.release()
+            raise Exception("Could not read first frame")
+        
+        # Run SAM on first frame
+        device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        print(f"Using device: {device}")
+        
+        mask = run_sam_on_circle(first_frame, center, radius, model_path=SAM_CHECKPOINT_PATH, device=device)
+        if mask is None:
+            cap.release()
+            out.release()
+            raise Exception("SAM failed to generate mask")
+        
+        # Convert mask to uint8
+        mask = mask.astype(np.uint8) * 255
+        print(f"Generated initial mask with shape: {mask.shape}")
+        
+        # Process first frame
+        blurred_frame = self._blur_mask(first_frame, mask)
+        out.write(blurred_frame)
+        
+        # Prepare for optical flow tracking
+        prev_gray = cv2.cvtColor(first_frame, cv2.COLOR_BGR2GRAY)
+        prev_mask = mask.copy()
+        
+        frame_count = 1
+        sam_rerun_interval = 30  # Re-run SAM every 30 frames to correct drift
+        
+        self.root.after(0, lambda: self.status_var.set(f"Processing frames with optical flow..."))
+        
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                break
+            
+            frame_count += 1
+            
+            # Update progress
+            if frame_count % 50 == 0:
+                progress = f"Processing frame {frame_count}/{total_frames}"
+                self.root.after(0, lambda p=progress: self.status_var.set(p))
+                print(progress)
+            
+            # Convert to grayscale for optical flow
+            curr_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            
+            # Calculate optical flow
+            flow = cv2.calcOpticalFlowFarneback(
+                prev_gray, curr_gray, None, 
+                pyr_scale=0.5, levels=3, winsize=15, 
+                iterations=3, poly_n=5, poly_sigma=1.2, flags=0
+            )
+            
+            # Apply flow to mask
+            h, w = prev_mask.shape
+            flow_map = np.indices((h, w)).astype(np.float32)
+            flow_map[0] += flow[..., 1]  # y-flow
+            flow_map[1] += flow[..., 0]  # x-flow
+            
+            # Remap the mask
+            new_mask = cv2.remap(
+                prev_mask, flow_map[1], flow_map[0], 
+                interpolation=cv2.INTER_NEAREST, 
+                borderMode=cv2.BORDER_CONSTANT, borderValue=0
+            )
+            
+            # Re-run SAM periodically to correct drift
+            if frame_count % sam_rerun_interval == 0:
+                try:
+                    print(f"Re-running SAM at frame {frame_count}")
+                    # Find new center from current mask
+                    moments = cv2.moments(new_mask)
+                    if moments["m00"] > 0:
+                        new_center = (
+                            int(moments["m10"] / moments["m00"]),
+                            int(moments["m01"] / moments["m00"])
+                        )
+                        sam_mask = run_sam_on_circle(frame, new_center, radius, 
+                                                   model_path=SAM_CHECKPOINT_PATH, device=device)
+                        if sam_mask is not None:
+                            new_mask = (sam_mask.astype(np.uint8) * 255)
+                            print(f"SAM correction applied at frame {frame_count}")
+                except Exception as e:
+                    print(f"SAM re-run failed at frame {frame_count}: {e}")
+                    # Continue with optical flow mask
+            
+            # Apply blur to masked region
+            blurred_frame = self._blur_mask(frame, new_mask)
+            out.write(blurred_frame)
+            
+            # Update for next iteration
+            prev_gray = curr_gray
+            prev_mask = new_mask
+        
+        # Cleanup
+        cap.release()
+        out.release()
+        
+        # Update UI
+        def completion_message():
+            self.status_var.set("Blur and track completed!")
+            messagebox.showinfo("Complete", 
+                              f"SAM mask tracked and blurred video saved as:\n{output_path}\n\n"
+                              f"Processed {frame_count} frames")
+        
+        self.root.after(0, completion_message)
+        print(f"Blur and track completed. Output saved to: {output_path}")
+
+    def _blur_mask(self, frame, mask):
+        """Apply blur to masked region of frame"""
+        # Create a strong blur
+        blurred = cv2.GaussianBlur(frame, (41, 41), 0)
+        
+        # Create 3-channel mask
+        mask_3ch = cv2.merge([mask, mask, mask])
+        
+        # Apply mask: where mask is 255, use blurred; otherwise use original
+        result = np.where(mask_3ch == 255, blurred, frame)
+        
+        return result.astype(np.uint8)
 
     def export_summary(self):
-
-         messagebox.showinfo("Export", "qa-generation functionality would go here")
+        """Placeholder for QA generation functionality"""
+        messagebox.showinfo("Export", "QA generation functionality would go here")
 
     # Prompt Builder Methods
-
-    
-    # ------------------ PROMPT BUILDER METHODS -------------------
-
     def build_qwen(self, video_path, question, answer, num_frames=10):
         return {
             "conversations": [
@@ -956,32 +1335,6 @@ class AsyncVideoAnnotationTool:
                             f"All Templates Export Completed!\n\n"
                             f"Processed: {processed_count}\n"
                             f"Skipped: {skipped_count}\n"
-                            f"Files exported: {', '.join(files_written)}"
-                        )
-                        self.status_var.set("Export completed")
-                    
-                    self.root.after(0, update_ui)
-                    
-                else:
-                    fname = f"model_train_{self.FILE_SUFFIX[template_choice]}.jsonl"
-                    fpath = os.path.join(out_dir, fname)
-                    
-                    with open(fpath, "w", encoding="utf-8") as fout:
-                        for prompt in prompts:
-                            fout.write(json.dumps(prompt["data"], ensure_ascii=False) + "\n")
-                    
-                    def update_ui():
-                        template_names = {
-                            "1": "VideoLLaMA2",
-                            "2": "Llava-Next-Video",
-                            "3": "Qwen-VL2-7b-hf"
-                        }
-                        messagebox.showinfo(
-                            "Export Complete",
-                            f"Accepted Q&A Export Completed!\n\n"
-                            f"Template used: {template_names[template_choice]}\n"
-                            f"Processed: {processed_count}\n"
-                            f"Skipped: {skipped_count}\n"
                             f"Exported to: {fname}"
                         )
                         self.status_var.set("Export completed")
@@ -1007,7 +1360,6 @@ class AsyncVideoAnnotationTool:
         print("Application shutting down...")
         self.stop_current_thread()
         self.cleanup_resources()
-
 
 
 if __name__ == "__main__":
