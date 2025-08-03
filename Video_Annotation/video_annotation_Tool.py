@@ -10,6 +10,7 @@ import queue
 import numpy as np
 import time
 import gc
+from ultralytics import YOLO
 from functools import wraps
 import torch
 from segment_anything import sam_model_registry, SamPredictor
@@ -1177,17 +1178,23 @@ class AsyncVideoAnnotationTool:
         
         def blur_track_thread():
             try:
-                self.blur_and_track_sam_multiple(circles)
+                self.blur_and_track_yolo_sam_predictive(circles)
             except Exception as e:
                 self.root.after(0, lambda: messagebox.showerror("Error", f"Blur and track failed: {str(e)}"))
                 self.root.after(0, lambda: self.status_var.set("Blur and track failed"))
         
         threading.Thread(target=blur_track_thread, daemon=True).start()
+    def blur_and_track_yolo_sam_predictive(self, circles):
 
-    def blur_and_track_sam_multiple(self, circles):
-        """Blur and track multiple objects using SAM with optical flow"""
         circle_count = len(circles)
-        print(f"Starting SAM blur and track for {circle_count} circles")
+        print(f"Starting predictive YOLO + SAM blur and track for {circle_count} circles")
+        
+        # Load YOLO model
+        try:
+            yolo_model = YOLO('yolov8n.pt')
+            print("YOLO model loaded successfully")
+        except Exception as e:
+            raise Exception(f"Failed to load YOLO model: {e}. Please install ultralytics: pip install ultralytics")
         
         # Load video
         cap = cv2.VideoCapture(self.current_video_path)
@@ -1203,7 +1210,7 @@ class AsyncVideoAnnotationTool:
         print(f"Video properties - FPS: {fps}, Size: {frame_width}x{frame_height}, Frames: {total_frames}")
         
         # Prepare output video
-        output_path = os.path.splitext(self.current_video_path)[0] + f"_sam_blur_{circle_count}objects.mp4"
+        output_path = os.path.splitext(self.current_video_path)[0] + f"_predictive_blur_{circle_count}objects.mp4"
         fourcc = cv2.VideoWriter_fourcc(*'mp4v')
         out = cv2.VideoWriter(output_path, fourcc, fps, (frame_width, frame_height))
         
@@ -1211,8 +1218,22 @@ class AsyncVideoAnnotationTool:
             cap.release()
             raise Exception("Could not create output video file")
         
+        # Load SAM model
+        device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        print(f"Using device: {device}")
+        
+        try:
+            sam = sam_model_registry["vit_h"](checkpoint=SAM_CHECKPOINT_PATH)
+            sam.to(device)
+            predictor = SamPredictor(sam)
+            print("SAM model loaded successfully")
+        except Exception as e:
+            cap.release()
+            out.release()
+            raise Exception(f"Failed to load SAM model: {e}")
+        
         # Update status
-        self.root.after(0, lambda: self.status_var.set(f"Running SAM on first frame for {circle_count} objects..."))
+        self.root.after(0, lambda: self.status_var.set(f"Initializing predictive tracking for {circle_count} objects..."))
         
         # Read first frame
         ret, first_frame = cap.read()
@@ -1221,44 +1242,108 @@ class AsyncVideoAnnotationTool:
             out.release()
             raise Exception("Could not read first frame")
         
-        # Run SAM on first frame for all circles
-        device = 'cuda' if torch.cuda.is_available() else 'cpu'
-        print(f"Using device: {device}")
+        # Initialize object tracking data with velocity tracking
+        objects_data = []
         
-        # Initialize masks for each circle
-        masks = []
-        for i, (center, radius, _) in enumerate(circles):
-            print(f"Running SAM for circle {i+1}/{circle_count} at center {center} with radius {radius}")
-            mask = run_sam_on_circle(first_frame, center, radius, model_path=SAM_CHECKPOINT_PATH, device=device)
-            if mask is None:
-                print(f"Warning: SAM failed for circle {i+1}, skipping this object")
-                continue
+        # Run YOLO on first frame
+        results = yolo_model(first_frame, verbose=False)
+        detections = results[0].boxes
+        
+        if detections is not None:
+            boxes = detections.xyxy.cpu().numpy()
+            confidences = detections.conf.cpu().numpy()
+            class_ids = detections.cls.cpu().numpy().astype(int)
             
-            # Convert mask to uint8
-            mask = mask.astype(np.uint8) * 255
-            masks.append((center, radius, mask))
-            print(f"Generated mask {i+1} with shape: {mask.shape}")
+            print(f"YOLO detected {len(boxes)} objects in first frame")
+            
+            # Match circles with YOLO detections
+            for i, (center, radius, _) in enumerate(circles):
+                best_match_idx = None
+                best_distance = float('inf')
+                
+                for j, (x1, y1, x2, y2) in enumerate(boxes):
+                    box_center = ((x1 + x2) / 2, (y1 + y2) / 2)
+                    distance = ((center[0] - box_center[0])**2 + (center[1] - box_center[1])**2)**0.5
+                    
+                    if distance < best_distance and distance < radius * 2:
+                        best_distance = distance
+                        best_match_idx = j
+                
+                if best_match_idx is not None:
+                    x1, y1, x2, y2 = boxes[best_match_idx]
+                    class_id = class_ids[best_match_idx]
+                    confidence = confidences[best_match_idx]
+                    class_name = yolo_model.names[class_id] if class_id < len(yolo_model.names) else f"class_{class_id}"
+                    
+                    print(f"Circle {i+1} matched with {class_name} (conf: {confidence:.3f})")
+                    
+                    # Get initial SAM mask
+                    box_center = (int((x1 + x2) / 2), int((y1 + y2) / 2))
+                    sam_mask = self._run_sam_on_box(first_frame, [x1, y1, x2, y2], predictor)
+                    
+                    if sam_mask is not None:
+                        mask = (sam_mask.astype(np.uint8) * 255)
+                        
+                        obj_data = {
+                            'original_center': center,
+                            'original_radius': radius,
+                            'current_center': box_center,
+                            'predicted_center': box_center,  # For prediction
+                            'current_bbox': [x1, y1, x2, y2],
+                            'predicted_bbox': [x1, y1, x2, y2],  # For prediction
+                            'current_mask': mask,
+                            'predicted_mask': mask.copy(),  # Mask at predicted position
+                            'class_id': class_id,
+                            'class_name': class_name,
+                            'track_id': i,
+                            'lost_tracking': False,
+                            'frames_lost': 0,
+                            # Velocity tracking
+                            'velocity': (0, 0),
+                            'position_history': [box_center],  # Last 3 positions for velocity calc
+                            'acceleration': (0, 0),
+                            'mask_update_counter': 0
+                        }
+                        objects_data.append(obj_data)
+                        print(f"Initialized predictive tracking for {class_name} at {box_center}")
         
-        if not masks:
-            cap.release()
-            out.release()
-            raise Exception("SAM failed to generate any valid masks")
+        if not objects_data:
+            print("No YOLO matches found, falling back to SAM-only approach")
+            for i, (center, radius, _) in enumerate(circles):
+                mask = run_sam_on_circle(first_frame, center, radius, model_path=SAM_CHECKPOINT_PATH, device=device)
+                if mask is not None:
+                    mask = mask.astype(np.uint8) * 255
+                    obj_data = {
+                        'original_center': center,
+                        'original_radius': radius,
+                        'current_center': center,
+                        'predicted_center': center,
+                        'current_bbox': None,
+                        'predicted_bbox': None,
+                        'current_mask': mask,
+                        'predicted_mask': mask.copy(),
+                        'class_id': -1,
+                        'class_name': 'unknown',
+                        'track_id': i,
+                        'lost_tracking': False,
+                        'frames_lost': 0,
+                        'velocity': (0, 0),
+                        'position_history': [center],
+                        'acceleration': (0, 0),
+                        'mask_update_counter': 0
+                    }
+                    objects_data.append(obj_data)
         
-        print(f"Successfully generated {len(masks)} masks out of {circle_count} circles")
+        print(f"Tracking {len(objects_data)} objects with predictive positioning")
         
-        # Process first frame - combine all masks
-        combined_mask = self._combine_masks([mask for _, _, mask in masks])
+        # Process first frame
+        combined_mask = self._combine_masks([obj['predicted_mask'] for obj in objects_data])
         blurred_frame = self._blur_mask(first_frame, combined_mask)
         out.write(blurred_frame)
         
-        # Prepare for optical flow tracking
-        prev_gray = cv2.cvtColor(first_frame, cv2.COLOR_BGR2GRAY)
-        prev_masks = [mask.copy() for _, _, mask in masks]
-        
         frame_count = 1
-        sam_rerun_interval = 30  # Re-run SAM every 30 frames to correct drift
         
-        self.root.after(0, lambda: self.status_var.set(f"Processing frames with optical flow for {len(masks)} objects..."))
+        self.root.after(0, lambda: self.status_var.set(f"Processing with predictive blur for {len(objects_data)} objects..."))
         
         while True:
             ret, frame = cap.read()
@@ -1268,321 +1353,439 @@ class AsyncVideoAnnotationTool:
             frame_count += 1
             
             # Update progress
-            if frame_count % 50 == 0:
-                progress = f"Processing frame {frame_count}/{total_frames} ({len(masks)} objects)"
+            if frame_count % 30 == 0:
+                active_count = len([obj for obj in objects_data if not obj['lost_tracking']])
+                progress = f"Frame {frame_count}/{total_frames} - Predictive tracking {active_count}/{len(objects_data)} objects"
                 self.root.after(0, lambda p=progress: self.status_var.set(p))
                 print(progress)
             
-            # Convert to grayscale for optical flow
-            curr_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-            
-            # Calculate optical flow
-            flow = cv2.calcOpticalFlowFarneback(
-                prev_gray, curr_gray, None, 
-                pyr_scale=0.5, levels=3, winsize=15, 
-                iterations=3, poly_n=5, poly_sigma=1.2, flags=0
-            )
-            
-            # Apply flow to each mask
-            h, w = prev_masks[0].shape
-            flow_map = np.indices((h, w)).astype(np.float32)
-            flow_map[0] += flow[..., 1]  # y-flow
-            flow_map[1] += flow[..., 0]  # x-flow
-            
-            new_masks = []
-            for i, prev_mask in enumerate(prev_masks):
-                # Remap the mask
-                new_mask = cv2.remap(
-                    prev_mask, flow_map[1], flow_map[0], 
-                    interpolation=cv2.INTER_NEAREST, 
-                    borderMode=cv2.BORDER_CONSTANT, borderValue=0
-                )
-                new_masks.append(new_mask)
-            
-            # Re-run SAM periodically to correct drift
-            if frame_count % sam_rerun_interval == 0:
-                print(f"Re-running SAM at frame {frame_count} for {len(masks)} objects")
-                corrected_masks = []
+            # STEP 1: Predict where objects should be based on velocity
+            for obj_data in objects_data:
+                if obj_data['lost_tracking']:
+                    continue
                 
-                for i, ((original_center, original_radius, _), new_mask) in enumerate(zip(masks, new_masks)):
-                    try:
-                        # Find new center from current mask
-                        moments = cv2.moments(new_mask)
-                        if moments["m00"] > 0:
-                            new_center = (
-                                int(moments["m10"] / moments["m00"]),
-                                int(moments["m01"] / moments["m00"])
-                            )
-                            sam_mask = run_sam_on_circle(frame, new_center, original_radius, 
-                                                       model_path=SAM_CHECKPOINT_PATH, device=device)
-                            if sam_mask is not None:
-                                corrected_mask = (sam_mask.astype(np.uint8) * 255)
-                                corrected_masks.append(corrected_mask)
-                                print(f"SAM correction applied for object {i+1} at frame {frame_count}")
-                                continue
-                    except Exception as e:
-                        print(f"SAM re-run failed for object {i+1} at frame {frame_count}: {e}")
+                # Calculate predicted position using velocity
+                current_pos = obj_data['current_center']
+                velocity = obj_data['velocity']
+                
+                # Predict next position
+                predicted_x = int(current_pos[0] + velocity[0])
+                predicted_y = int(current_pos[1] + velocity[1])
+                
+                # Keep within frame bounds
+                predicted_x = max(50, min(frame_width - 50, predicted_x))
+                predicted_y = max(50, min(frame_height - 50, predicted_y))
+                
+                obj_data['predicted_center'] = (predicted_x, predicted_y)
+                
+                # Update predicted bounding box if we have one
+                if obj_data['current_bbox'] is not None:
+                    x1, y1, x2, y2 = obj_data['current_bbox']
+                    bbox_width = x2 - x1
+                    bbox_height = y2 - y1
                     
-                    # If SAM failed, use optical flow mask
-                    corrected_masks.append(new_mask)
+                    # Move bbox to predicted position
+                    new_x1 = predicted_x - bbox_width // 2
+                    new_y1 = predicted_y - bbox_height // 2
+                    new_x2 = new_x1 + bbox_width
+                    new_y2 = new_y1 + bbox_height
+                    
+                    obj_data['predicted_bbox'] = [new_x1, new_y1, new_x2, new_y2]
                 
-                new_masks = corrected_masks
+                # Move the mask to predicted position
+                obj_data['predicted_mask'] = self._move_mask_to_position(
+                    obj_data['current_mask'], 
+                    obj_data['current_center'], 
+                    obj_data['predicted_center']
+                )
             
-            # Combine all masks and apply blur
-            combined_mask = self._combine_masks(new_masks)
-            blurred_frame = self._blur_mask(frame, combined_mask)
+            # STEP 2: Run YOLO detection (this happens after prediction, so no lag)
+            results = yolo_model(frame, verbose=False)
+            current_detections = results[0].boxes
+            
+            if current_detections is not None:
+                current_boxes = current_detections.xyxy.cpu().numpy()
+                current_confidences = current_detections.conf.cpu().numpy()
+                current_class_ids = current_detections.cls.cpu().numpy().astype(int)
+                
+                # STEP 3: Update actual positions and calculate velocity
+                for obj_data in objects_data:
+                    if obj_data['lost_tracking']:
+                        continue
+                    
+                    # Find best matching detection
+                    best_match_idx = None
+                    best_score = 0
+                    
+                    for j, (x1, y1, x2, y2) in enumerate(current_boxes):
+                        if obj_data['class_id'] >= 0 and current_class_ids[j] != obj_data['class_id']:
+                            continue
+                        
+                        box_center = ((x1 + x2) / 2, (y1 + y2) / 2)
+                        prev_center = obj_data['current_center']
+                        
+                        distance = ((box_center[0] - prev_center[0])**2 + (box_center[1] - prev_center[1])**2)**0.5
+                        max_distance = 150  # Allow larger movements
+                        
+                        if distance < max_distance:
+                            score = (max_distance - distance) / max_distance * current_confidences[j]
+                            if score > best_score:
+                                best_score = score
+                                best_match_idx = j
+                    
+                    if best_match_idx is not None and best_score > 0.2:
+                        # Update actual position
+                        x1, y1, x2, y2 = current_boxes[best_match_idx]
+                        new_center = (int((x1 + x2) / 2), int((y1 + y2) / 2))
+                        old_center = obj_data['current_center']
+                        
+                        # Calculate actual movement and velocity
+                        movement = (new_center[0] - old_center[0], new_center[1] - old_center[1])
+                        movement_distance = (movement[0]**2 + movement[1]**2)**0.5
+                        
+                        # Update velocity (smoothed)
+                        old_velocity = obj_data['velocity']
+                        new_velocity = (
+                            0.7 * old_velocity[0] + 0.3 * movement[0],  # Smooth velocity
+                            0.7 * old_velocity[1] + 0.3 * movement[1]
+                        )
+                        
+                        obj_data['current_center'] = new_center
+                        obj_data['current_bbox'] = [x1, y1, x2, y2]
+                        obj_data['velocity'] = new_velocity
+                        obj_data['frames_lost'] = 0
+                        obj_data['mask_update_counter'] += 1
+                        
+                        # Add to position history
+                        obj_data['position_history'].append(new_center)
+                        if len(obj_data['position_history']) > 3:
+                            obj_data['position_history'].pop(0)
+                        
+                        print(f"Frame {frame_count}: {obj_data['class_name']} - Actual: {movement}, Velocity: ({new_velocity[0]:.1f}, {new_velocity[1]:.1f})")
+                        
+                        # Update SAM mask every few frames or on large movements
+                        if obj_data['mask_update_counter'] % 3 == 0 or movement_distance > 25:
+                            sam_mask = self._run_sam_on_box(frame, [x1, y1, x2, y2], predictor)
+                            if sam_mask is not None:
+                                obj_data['current_mask'] = (sam_mask.astype(np.uint8) * 255)
+                                # Also update predicted mask to current position
+                                obj_data['predicted_mask'] = obj_data['current_mask'].copy()
+                                print(f"Updated SAM mask for {obj_data['class_name']}")
+                    
+                    else:
+                        # Object not found, but keep using predicted position
+                        obj_data['frames_lost'] += 1
+                        print(f"Frame {frame_count}: Using prediction for {obj_data['class_name']} ({obj_data['frames_lost']} frames)")
+                        
+                        if obj_data['frames_lost'] > 15:  # Allow more frames before giving up
+                            obj_data['lost_tracking'] = True
+                            print(f"Marking {obj_data['class_name']} as permanently lost")
+            
+            # STEP 4: Apply blur using PREDICTED positions (no lag!)
+            active_masks = [obj['predicted_mask'] for obj in objects_data if not obj['lost_tracking']]
+            
+            if active_masks:
+                combined_mask = self._combine_masks(active_masks)
+                blurred_frame = self._blur_mask(frame, combined_mask)
+            else:
+                blurred_frame = frame
+            
             out.write(blurred_frame)
-            
-            # Update for next iteration
-            prev_gray = curr_gray
-            prev_masks = new_masks
         
         # Cleanup
         cap.release()
         out.release()
-        
-        # Update UI
-        
+    
+    # Update UI
         def completion_message():
-            self.status_var.set("Multi-object blur and track completed!")
+            active_objects = sum(1 for obj in objects_data if not obj['lost_tracking'])
+            self.status_var.set("Predictive blur tracking completed!")
             messagebox.showinfo("Complete", 
-                              f"SAM tracked and blurred {len(masks)} objects in video.\n"
-                              f"Processed {frame_count} frames\n\n"
-                              f"Output saved as:\n{output_path}")
+                            f"Predictive YOLO + SAM tracking completed!\n"
+                            f"Processed {frame_count} frames\n"
+                            f"Final active objects: {active_objects}/{len(objects_data)}\n\n"
+                            f"Objects tracked:\n" + 
+                            "\n".join([f"- {obj['class_name']}" for obj in objects_data]) +
+                            f"\n\nOutput saved as:\n{output_path}")
         
         self.root.after(0, completion_message)
-        print(f"Multi-object blur and track completed. Output saved to: {output_path}")
+        print(f"Predictive blur tracking completed. Output saved to: {output_path}")
+
+    def _move_mask_to_position(self, mask, old_center, new_center):
+        """Move a mask from old position to new position"""
+        if old_center == new_center:
+            return mask.copy()
+        
+        # Calculate translation
+        dx = new_center[0] - old_center[0]
+        dy = new_center[1] - old_center[1]
+        
+        # Create translation matrix
+        translation_matrix = np.float32([[1, 0, dx], [0, 1, dy]])
+        
+        # Apply translation to mask
+        moved_mask = cv2.warpAffine(
+            mask, 
+            translation_matrix, 
+            (mask.shape[1], mask.shape[0]),
+            borderMode=cv2.BORDER_CONSTANT,
+            borderValue=0
+        )
+        
+        return moved_mask
+
+    def _run_sam_on_box(self, frame, bbox, predictor):
+        """Run SAM segmentation on a bounding box"""
+        try:
+            frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            predictor.set_image(frame_rgb)
+            
+            input_box = np.array(bbox)
+            
+            masks, scores, _ = predictor.predict(
+                point_coords=None,
+                point_labels=None,
+                box=input_box[None, :],
+                multimask_output=False,
+            )
+            
+            return masks[0] if len(masks) > 0 else None
+            
+        except Exception as e:
+            print(f"Error running SAM on box: {e}")
+            return None
+    
 
     def _combine_masks(self, masks):
-        """Combine multiple masks into a single mask"""
-        if not masks:
-            return None
-            
-        if len(masks) == 1:
-            return masks[0]
-        
-        # Start with first mask
-        combined = masks[0].copy()
-        
-        # Add all other masks using logical OR
-        for mask in masks[1:]:
-            combined = cv2.bitwise_or(combined, mask)
-        
-        return combined
+                """Combine multiple masks into a single mask"""
+                if not masks:
+                    return None
+                    
+                if len(masks) == 1:
+                    return masks[0]
+                
+                # Start with first mask
+                combined = masks[0].copy()
+                
+                # Add all other masks using logical OR
+                for mask in masks[1:]:
+                    combined = cv2.bitwise_or(combined, mask)
+                
+                return combined
     def _blur_mask(self, frame, mask):
-        """Apply blur to masked region of frame"""
-        # Create a strong blur
-        blurred = cv2.GaussianBlur(frame, (41, 41), 0)
-        
-        # Create 3-channel mask
-        mask_3ch = cv2.merge([mask, mask, mask])
-        
-        # Apply mask: where mask is 255, use blurred; otherwise use original
-        result = np.where(mask_3ch == 255, blurred, frame)
-        
-        return result.astype(np.uint8)
+            """Apply blur to masked region of frame"""
+            # Create a strong blur
+            blurred = cv2.GaussianBlur(frame, (41, 41), 0)
+            
+            # Create 3-channel mask
+            mask_3ch = cv2.merge([mask, mask, mask])
+            
+            # Apply mask: where mask is 255, use blurred; otherwise use original
+            result = np.where(mask_3ch == 255, blurred, frame)
+            
+            return result.astype(np.uint8)
 
     def export_summary(self):
-        """Placeholder for QA generation functionality"""
-        messagebox.showinfo("Export", "QA generation functionality would go here")
+            """Placeholder for QA generation functionality"""
+            messagebox.showinfo("Export", "QA generation functionality would go here")
 
-    # Prompt Builder Methods
+        # Prompt Builder Methods
     def build_qwen(self, video_path, question, answer, num_frames=10):
-        return {
-            "conversations": [
-                {"role": "system", "content": "You are a helpful assistant."},
-                {"role": "user", "content": [
-                    {"type": "video",
-                     "video": {"video_path": video_path,
-                               "fps": 1,
-                               "max_frames": num_frames}},
-                    {"type": "text", "text": question}
-                ]},
-                {"role": "assistant", "content": [{"type": "text", "text": answer}]}
-            ]
-        }
+            return {
+                "conversations": [
+                    {"role": "system", "content": "You are a helpful assistant."},
+                    {"role": "user", "content": [
+                        {"type": "video",
+                        "video": {"video_path": video_path,
+                                "fps": 1,
+                                "max_frames": num_frames}},
+                        {"type": "text", "text": question}
+                    ]},
+                    {"role": "assistant", "content": [{"type": "text", "text": answer}]}
+                ]
+            }
 
     def build_llava(self, video_path, question, answer, num_frames=10):
-        prompt = f"USER: {question}\n<|video|>\nASSISTANT:"
-        return {
-            "prompt": prompt,
-            "answer": answer,
-            "video_path": video_path
-        }
+            prompt = f"USER: {question}\n<|video|>\nASSISTANT:"
+            return {
+                "prompt": prompt,
+                "answer": answer,
+                "video_path": video_path
+            }
 
     def build_llama2(self, video_path, question, answer, num_frames=10):
-        return {
-            "conversations": [
-                {"role": "system", "content": "You are a helpful assistant."},
-                {"role": "user", "content": [
-                    {"type": "video", "video": {"video_path": video_path, "fps": 1, "max_frames": num_frames}},
-                    {"type": "text", "text": question}
-                ]},
-                {"role": "assistant", "content": [
-                    {"type": "text", "text": answer}
-                ]}
-            ]
-        }
+            return {
+                "conversations": [
+                    {"role": "system", "content": "You are a helpful assistant."},
+                    {"role": "user", "content": [
+                        {"type": "video", "video": {"video_path": video_path, "fps": 1, "max_frames": num_frames}},
+                        {"type": "text", "text": question}
+                    ]},
+                    {"role": "assistant", "content": [
+                        {"type": "text", "text": answer}
+                    ]}
+                ]
+            }
 
     def save_chat_template_selection(self):
-        """Save chat template selection"""
-        if not self.current_video_qa:
-            messagebox.showinfo("Save", "No QA visible for this video.")
-            return
+            """Save chat template selection"""
+            if not self.current_video_qa:
+                messagebox.showinfo("Save", "No QA visible for this video.")
+                return
+                
+            current_video_accepted = [
+                qa for qa in self.current_video_qa 
+                if qa in self.accepted_qa_data
+            ]
             
-        current_video_accepted = [
-            qa for qa in self.current_video_qa 
-            if qa in self.accepted_qa_data
-        ]
-        
-        if not current_video_accepted:
-            messagebox.showwarning("No Accepted Rows", 
-                                 "No accepted Q&A pairs found for the current video.\n"
-                                 "Please accept some questions first.")
-            return
+            if not current_video_accepted:
+                messagebox.showwarning("No Accepted Rows", 
+                                    "No accepted Q&A pairs found for the current video.\n"
+                                    "Please accept some questions first.")
+                return
+                
+            choice = self.template_var.get()
+            templates = ["1", "2", "3"] if choice == "4" else [choice]
             
-        choice = self.template_var.get()
-        templates = ["1", "2", "3"] if choice == "4" else [choice]
-        
-        def generate_templates():
-            try:
-                added = 0
-                for qa in current_video_accepted:
-                    vpath = self.current_video_path
-                    q = qa.get("question", "")
-                    a = qa.get("answer", "")
-                    
-                    if q and a:
-                        for t in templates:
-                            obj = self.PROMPT_BUILDERS[t](vpath, q, a, num_frames=4)
-                            self.saved_prompts.append((t, obj))
-                            added += 1
-                
-                def update_ui():
-                    current_video_name = os.path.basename(self.current_video_path) if self.current_video_path else "current video"
-                    template_names = {
-                        "1": "VideoLLaMA2",
-                        "2": "Llava-Next-Video", 
-                        "3": "Qwen-VL2-7b-hf",
-                        "4": "All templates"
-                    }
-                    
-                    messagebox.showinfo(
-                        "Save Template Selection",
-                        f"Stored {added} prompt(s) from {len(current_video_accepted)} accepted Q&A pairs "
-                        f"for {current_video_name} using {template_names[choice]} template(s) in memory.\n\n"
-                        f"Total prompts in memory: {len(self.saved_prompts)}\n\n"
-                        "Use 'Finish and Export' to write all saved prompts to disk, or continue selecting more videos."
-                    )
-                    self.status_var.set(f"Templates generated: {added}")
-                
-                self.root.after(0, update_ui)
-                
-            except Exception as e:
-                self.root.after(0, lambda: messagebox.showerror("Error", f"Failed to generate templates: {str(e)}"))
-        
-        self.status_var.set("Generating templates...")
-        threading.Thread(target=generate_templates, daemon=True).start()
-
-    def finish_and_export_chat_template(self):
-        """Export chat templates"""
-        if not self.accepted_qa_data:
-            messagebox.showwarning("No Accepted Rows", 
-                                 "No accepted Q&A pairs found.\n"
-                                 "Please accept some questions first before exporting.")
-            return
-            
-        template_choice = self.template_var.get()
-        if template_choice not in ("1", "2", "3", "4"):
-            messagebox.showerror("Invalid Choice", "Please enter 1, 2, 3, or 4 to select a valid template.")
-            return
-            
-        out_dir = filedialog.askdirectory(title="Pick export directory")
-        if not out_dir:
-            return
-        
-        def export_templates():
-            try:
-                self.root.after(0, lambda: self.status_var.set("Exporting templates..."))
-                
-                prompts = []
-                processed_count = 0
-                skipped_count = 0
-                
-                for qa in self.accepted_qa_data:
-                    video_file = (qa.get("video_file_path") or qa.get("video_file") or 
-                                qa.get("video_path") or qa.get("file_name") or "")
-                    vpath = os.path.join(self.video_dir, video_file) if video_file else ""
-                    q = qa.get("question", "")
-                    a = qa.get("answer", "")
-                    
-                    if vpath and q and a:
-                        if template_choice == "4":
-                            for template_id in ["1", "2", "3"]:
-                                prompts.append({
-                                    "template": template_id,
-                                    "data": self.PROMPT_BUILDERS[template_id](vpath, q, a, num_frames=4)
-                                })
-                        else:
-                            prompts.append({
-                                "template": template_choice,
-                                "data": self.PROMPT_BUILDERS[template_choice](vpath, q, a, num_frames=4)
-                            })
-                        processed_count += 1
-                    else:
-                        skipped_count += 1
-                
-                if not prompts:
-                    raise Exception("No valid prompts to export")
-                
-                # Write files
-                if template_choice == "4":
-                    template_groups = {"1": [], "2": [], "3": []}
-                    for prompt in prompts:
-                        template_groups[prompt["template"]].append(prompt["data"])
-                    
-                    files_written = []
-                    for template_id, template_prompts in template_groups.items():
-                        if template_prompts:
-                            fname = f"model_train_{self.FILE_SUFFIX[template_id]}.jsonl"
-                            fpath = os.path.join(out_dir, fname)
-                            
-                            with open(fpath, "w", encoding="utf-8") as fout:
-                                for obj in template_prompts:
-                                    fout.write(json.dumps(obj, ensure_ascii=False) + "\n")
-                            files_written.append(fname)
+            def generate_templates():
+                try:
+                    added = 0
+                    for qa in current_video_accepted:
+                        vpath = self.current_video_path
+                        q = qa.get("question", "")
+                        a = qa.get("answer", "")
+                        
+                        if q and a:
+                            for t in templates:
+                                obj = self.PROMPT_BUILDERS[t](vpath, q, a, num_frames=4)
+                                self.saved_prompts.append((t, obj))
+                                added += 1
                     
                     def update_ui():
+                        current_video_name = os.path.basename(self.current_video_path) if self.current_video_path else "current video"
+                        template_names = {
+                            "1": "VideoLLaMA2",
+                            "2": "Llava-Next-Video", 
+                            "3": "Qwen-VL2-7b-hf",
+                            "4": "All templates"
+                        }
+                        
                         messagebox.showinfo(
-                            "Export Complete",
-                            f"All Templates Export Completed!\n\n"
-                            f"Processed: {processed_count}\n"
-                            f"Skipped: {skipped_count}\n"
-                            f"Exported to: {fname}"
+                            "Save Template Selection",
+                            f"Stored {added} prompt(s) from {len(current_video_accepted)} accepted Q&A pairs "
+                            f"for {current_video_name} using {template_names[choice]} template(s) in memory.\n\n"
+                            f"Total prompts in memory: {len(self.saved_prompts)}\n\n"
+                            "Use 'Finish and Export' to write all saved prompts to disk, or continue selecting more videos."
                         )
-                        self.status_var.set("Export completed")
+                        self.status_var.set(f"Templates generated: {added}")
                     
                     self.root.after(0, update_ui)
-                
-                # Clear saved prompts
-                if self.saved_prompts:
-                    self.saved_prompts.clear()
-                    print("Cleared saved prompts from memory after export")
                     
-            except Exception as e:
-                def show_error():
-                    messagebox.showerror("Export Error", f"Failed to export: {str(e)}")
-                    self.status_var.set("Export failed")
+                except Exception as e:
+                    self.root.after(0, lambda: messagebox.showerror("Error", f"Failed to generate templates: {str(e)}"))
+            
+            self.status_var.set("Generating templates...")
+            threading.Thread(target=generate_templates, daemon=True).start()
+
+    def finish_and_export_chat_template(self):
+            """Export chat templates"""
+            if not self.accepted_qa_data:
+                messagebox.showwarning("No Accepted Rows", 
+                                    "No accepted Q&A pairs found.\n"
+                                    "Please accept some questions first before exporting.")
+                return
                 
-                self.root.after(0, show_error)
-        
-        threading.Thread(target=export_templates, daemon=True).start()
+            template_choice = self.template_var.get()
+            if template_choice not in ("1", "2", "3", "4"):
+                messagebox.showerror("Invalid Choice", "Please enter 1, 2, 3, or 4 to select a valid template.")
+                return
+                
+            out_dir = filedialog.askdirectory(title="Pick export directory")
+            if not out_dir:
+                return
+            
+            def export_templates():
+                try:
+                    self.root.after(0, lambda: self.status_var.set("Exporting templates..."))
+                    
+                    prompts = []
+                    processed_count = 0
+                    skipped_count = 0
+                    
+                    for qa in self.accepted_qa_data:
+                        video_file = (qa.get("video_file_path") or qa.get("video_file") or 
+                                    qa.get("video_path") or qa.get("file_name") or "")
+                        vpath = os.path.join(self.video_dir, video_file) if video_file else ""
+                        q = qa.get("question", "")
+                        a = qa.get("answer", "")
+                        
+                        if vpath and q and a:
+                            if template_choice == "4":
+                                for template_id in ["1", "2", "3"]:
+                                    prompts.append({
+                                        "template": template_id,
+                                        "data": self.PROMPT_BUILDERS[template_id](vpath, q, a, num_frames=4)
+                                    })
+                            else:
+                                prompts.append({
+                                    "template": template_choice,
+                                    "data": self.PROMPT_BUILDERS[template_choice](vpath, q, a, num_frames=4)
+                                })
+                            processed_count += 1
+                        else:
+                            skipped_count += 1
+                    
+                    if not prompts:
+                        raise Exception("No valid prompts to export")
+                    
+                    # Write files
+                    if template_choice == "4":
+                        template_groups = {"1": [], "2": [], "3": []}
+                        for prompt in prompts:
+                            template_groups[prompt["template"]].append(prompt["data"])
+                        
+                        files_written = []
+                        for template_id, template_prompts in template_groups.items():
+                            if template_prompts:
+                                fname = f"model_train_{self.FILE_SUFFIX[template_id]}.jsonl"
+                                fpath = os.path.join(out_dir, fname)
+                                
+                                with open(fpath, "w", encoding="utf-8") as fout:
+                                    for obj in template_prompts:
+                                        fout.write(json.dumps(obj, ensure_ascii=False) + "\n")
+                                files_written.append(fname)
+                        
+                        def update_ui():
+                            messagebox.showinfo(
+                                "Export Complete",
+                                f"All Templates Export Completed!\n\n"
+                                f"Processed: {processed_count}\n"
+                                f"Skipped: {skipped_count}\n"
+                                f"Exported to: {fname}"
+                            )
+                            self.status_var.set("Export completed")
+                        
+                        self.root.after(0, update_ui)
+                    
+                    # Clear saved prompts
+                    if self.saved_prompts:
+                        self.saved_prompts.clear()
+                        print("Cleared saved prompts from memory after export")
+                        
+                except Exception as e:
+                    def show_error():
+                        messagebox.showerror("Export Error", f"Failed to export: {str(e)}")
+                        self.status_var.set("Export failed")
+                    
+                    self.root.after(0, show_error)
+            
+            threading.Thread(target=export_templates, daemon=True).start()
 
     def cleanup_on_exit(self):
-        """Cleanup when application exits"""
-        print("Application shutting down...")
-        self.stop_current_thread()
-        self.cleanup_resources()
+            """Cleanup when application exits"""
+            print("Application shutting down...")
+            self.stop_current_thread()
+            self.cleanup_resources()
 
 
 if __name__ == "__main__":
