@@ -13,7 +13,9 @@ dependencies = [
  "numpy",
  "opencv-python==4.12.0.88",
  "pillow",
-"pandas"
+"pandas",
+"ultralytics",
+"ttkbootstrap"
 ]
 
 [tool.setuptools]
