@@ -29,33 +29,33 @@ To run the tool:
 devbox run video_annotator
 ```
 
-## Features
+# Features
 
-### [Question Statistics](./UserGuide/QuestionStats.md)
+## 📊 [Question Statistics](./UserGuide/QuestionStats.md)
 
 Check generated questions and categorize them into accepts and rejects. Rejected questions can be edited directly in the tool. View comprehensive statistics about questions, answers, and types available in the loaded CSV file.
 
-### [Accept and Reject Questions](./UserGuide/ManualAnnotation.md)
+## ✅ [Accept and Reject Questions](./UserGuide/ManualAnnotation.md)
 
 Efficiently review and categorize generated questions with an intuitive interface for quality control.
 
-### [Manual Video Analysis](./UserGuide/VideoAnalysis.md)
+## 🎬 [Manual Video Analysis](./UserGuide/VideoAnalysis.md)
 
 Perform detailed video analysis with full playback controls including play, pause, stop, forward, and rewind functionality. Switch to frame-level analysis to manually pick and annotate individual frames.
 
-### [Video Splitting](./UserGuide/VideoSplit.md)
+## ✂️ [Video Splitting](./UserGuide/VideoSplit.md)
 
 Split large video files (over 10 seconds) into manageable 10-second clips for easier processing and annotation.
 
-### [Blur and Track Functionality](./UserGuide/BlurTrack.md)
+## 🔒 [Blur and Track Functionality](./UserGuide/BlurTrack.md)
 
 Manually blur select regions of the video to address privacy and ethical concerns while maintaining the integrity of the dataset.
 
-### [Export to Chat Template](./UserGuide/ExportChat.md)
+## 📤 [Export to Chat Template](./UserGuide/ExportChat.md)
 
-Export cleaned and annotated datasets into VLLM-ready templates for seamless integration with downstream applications.
+Export cleaned and annotated datasets into VLLM-ready templates including VideoLLaMA2, LLaVA-Next-Video, and Qwen-VL2 formats for seamless integration with downstream applications.
 
-## Contributing
+## 🤝 Contributing
 
 For contributing to this project find details [here](./UserGuide/Contribution.md)
 
