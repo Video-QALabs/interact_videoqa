@@ -1,13 +1,15 @@
 import cv2
 import os
+import shutil
+import datetime
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import matplotlib.patches as patches
 from collections import Counter
 import ttkbootstrap as ttk
 from ttkbootstrap import Style
-from ttkbootstrap.icons import Emoji      
 import re
+import shutil
 import csv
 from tkinter import *
 from tkinter import filedialog, messagebox
@@ -22,22 +24,11 @@ from ultralytics import YOLO
 from functools import wraps
 import torch
 from segment_anything import sam_model_registry, SamPredictor
+import pandas as pd
+
 
 SAM_CHECKPOINT_PATH = "sam_vit_h_4b8939.pth"
 
-
-import pandas as pd
-import matplotlib.pyplot as plt
-from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
-import matplotlib.patches as patches
-from collections import Counter
-import re
-
-import matplotlib.pyplot as plt
-from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
-import matplotlib.patches as patches
-from collections import Counter
-import re
 
 class QuestionStatistics(Toplevel):
     def __init__(self, parent, csv_file_path):
@@ -1620,6 +1611,7 @@ class AsyncVideoAnnotationTool:
             if self.playing:
                 self.update_video()
 
+
     def rewind(self):
         """FIXED: Skip backward 10 seconds in video"""
         if self.cap is None:
@@ -1850,11 +1842,12 @@ class AsyncVideoAnnotationTool:
             self.qa_states[item_id] = 'rejected'
             values = self.qa_listbox.item(item_id, 'values')
             self.qa_listbox.item(item_id, values=(*values[:3], 'Rejected'))
-            
+
             # Color the row red
             self.qa_listbox.item(item_id, tags=('rejected',))
             self.qa_listbox.tag_configure('rejected', background='lightcoral')
             
+
             # Make item editable
             self.editable_questions.add(item_id)
             
@@ -2058,6 +2051,7 @@ class AsyncVideoAnnotationTool:
                     start_frame = end_frame
                     clip_num += 1
 
+
                 cap.release()
                 cv2.destroyAllWindows()
 
@@ -2088,6 +2082,7 @@ class AsyncVideoAnnotationTool:
             if not ret:
                 messagebox.showerror("Error", "Could not read first frame from video.")
                 return
+
             
             # Convert first frame to PIL Image for circle selector
             first_frame_rgb = cv2.cvtColor(first_frame, cv2.COLOR_BGR2RGB)
@@ -2100,6 +2095,8 @@ class AsyncVideoAnnotationTool:
                     print(f"Circle {i+1} - Center: {center}, Radius: {radius}")
                 self.start_blur_and_track_process_multiple(circles)
             
+
+           
             CircleSelector(self.root, pil_image, on_circles_confirm)
             
         except Exception as e:
@@ -2628,9 +2625,11 @@ class AsyncVideoAnnotationTool:
     def finish_and_export_chat_template(self):
             """Export chat templates"""
              # Use qa_data with status filtering instead of accepted_qa_data
-            accepted_qa_data = [ qa for qa in self.current_video_qa
-        if qa.get('status') == 'accepted']
-            if not self.accepted_qa_data:
+
+            accepted_qa_data = [ qa for qa in self.current_video_qa if qa.get('status') == 'accepted']
+            if not accepted_qa_data:
+
+          
                 messagebox.showwarning("No Accepted Rows", 
                                     "No accepted Q&A pairs found.\n"
                                     "Please accept some questions first before exporting.")
@@ -2646,64 +2645,102 @@ class AsyncVideoAnnotationTool:
                 return
             
             def export_templates():
+
+             
+                """
+                Build the prompt JSONL files from every row whose
+                status == "accepted" and save them to *out_dir*.
+                Also updates the CSV (backup first) with the latest statuses.
+                """
+
                 try:
-                        self.root.after(0, lambda: self.status_var.set("Exporting templates..."))
-                        
-                        prompts = []
-                        processed_count = 0
-                        skipped_count = 0
-                        
-                       
-                        
-                        for qa in accepted_qa_data:
-                            video_file = (qa.get("video_file_path") or qa.get("video_file") or 
-                                        qa.get("video_path") or qa.get("file_name") or "")
-                            vpath = os.path.join(self.video_dir, video_file) if video_file else ""
-                            q = qa.get("question", "")
-                            a = qa.get("answer", "")
-                            
-                            if vpath and q and a:
-                                if template_choice == "4":
-                                    for template_id in ["1", "2", "3"]:
-                                        prompts.append({
-                                            "template": template_id,
-                                            "data": self.PROMPT_BUILDERS[template_id](vpath, q, a, num_frames=4)
-                                        })
-                                else:
-                                    prompts.append({
-                                        "template": template_choice,
-                                        "data": self.PROMPT_BUILDERS[template_choice](vpath, q, a, num_frames=4)
-                                    })
-                                processed_count += 1
-                            else:
-                                skipped_count += 1
-                        
-                        if not prompts:
-                            raise Exception("No accepted prompts to export")
-                        
-                        # Save updated CSV with status
-                        if self.csv_file_path:
-                            backup_path = self.csv_file_path.replace('.csv', '_backup.csv')
-                            # Create backup
-                            import shutil
-                            shutil.copy2(self.csv_file_path, backup_path)
-                            
-                            # Write updated CSV with status
-                            self.write_qa_to_csv(self.csv_file_path, self.qa_data)
-                            print(f"Updated CSV saved with status information. Backup created at: {backup_path}")
-                        
-                        # Rest of export logic remains the same...
-                        # [Include the rest of the original export logic here]
-                        
+                    # visual feedback
+                    self.root.after(0, lambda: self.status_var.set("Exporting templates..."))
+
+                    # 1) gather the rows that were accepted
+                    accepted_rows   = [qa for qa in self.qa_data if qa.get("status") == "accepted"]
+                    processed_count = 0
+                    skipped_count   = 0
+                    prompts         = []                           # (template-id, prompt-dict)
+
+                    for qa in accepted_rows:
+                        video_file = (qa.get("video_file_path") or qa.get("video_file") or
+                                    qa.get("video_path")      or qa.get("file_name")   or "")
+                        vpath = os.path.join(self.video_dir, video_file) if video_file else ""
+                        q     = qa.get("question", "")
+                        a     = qa.get("answer",  "")
+
+                        if not (vpath and q and a):
+                            skipped_count += 1
+                            continue
+
+                        if template_choice == "4":                # export *all* templates
+                            for tid in ("1", "2", "3"):
+                                prompts.append((tid,
+                                                self.PROMPT_BUILDERS[tid](vpath, q, a, num_frames=4)))
+                        else:                                     # only the chosen one
+                            prompts.append((template_choice,
+                                            self.PROMPT_BUILDERS[template_choice](vpath, q, a, num_frames=4)))
+
+                        processed_count += 1
+
+                    if not prompts:
+                        raise RuntimeError("No accepted prompts to export.")
+
+                    # 2) back-up the CSV, then write the updated version
+                    if self.csv_file_path:
+                        ts          = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+                        backup_path = self.csv_file_path.replace(".csv", f"_backup_{ts}.csv")
+                        shutil.copy2(self.csv_file_path, backup_path)
+
+                        self.write_qa_to_csv(self.csv_file_path, self.qa_data)
+                        print(f"CSV updated; backup saved to {backup_path}")
+
+                    # 3) write the prompt file(s)
+                    if template_choice == "4":
+                        groups = {"1": [], "2": [], "3": []}
+                        for tid, data in prompts:
+                            groups[tid].append(data)
+
+                        out_files = []
+                        for tid, plist in groups.items():
+                            if not plist:
+                                continue
+                            fname = f"model_train_{self.FILE_SUFFIX[tid]}.jsonl"
+                            with open(os.path.join(out_dir, fname), "w", encoding="utf-8") as f:
+                                for obj in plist:
+                                    f.write(json.dumps(obj, ensure_ascii=False) + "\n")
+                            out_files.append(fname)
+                    else:
+                        fname = f"model_train_{self.FILE_SUFFIX[template_choice]}.jsonl"
+                        with open(os.path.join(out_dir, fname), "w", encoding="utf-8") as f:
+                            for _, obj in prompts:
+                                f.write(json.dumps(obj, ensure_ascii=False) + "\n")
+                        out_files = [fname]
+
+                    # 4) UI success message
+                    def done():
+                        msg = (f"Export complete!\n\nProcessed: {processed_count}\n"
+                            f"Skipped: {skipped_count}\n\n"
+                            "Files written:\n  " + "\n  ".join(out_files))
+                        messagebox.showinfo("Export Complete", msg)
+                        self.status_var.set("Export completed")
+                    self.root.after(0, done)
+
+                    # clear in-memory prompt cache
+                    self.saved_prompts.clear()
+
                 except Exception as e:
-                        def show_error():
-                            messagebox.showerror("Export Error", f"Failed to export: {str(e)}")
-                            self.status_var.set("Export failed")
-                        
-                        self.root.after(0, show_error)
-            
+                    print(e)
+                    def fail():
+                        messagebox.showerror("Export Error","Error")
+                        self.status_var.set("Export failed")
+                    self.root.after(0, fail)
+
             threading.Thread(target=export_templates, daemon=True).start()
 
+
+             
     def cleanup_on_exit(self):
             """Cleanup when application exits"""
             print("Application shutting down...")
