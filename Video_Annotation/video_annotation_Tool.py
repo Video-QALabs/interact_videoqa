@@ -29,6 +29,7 @@ import pandas as pd
 
 SAM_CHECKPOINT_PATH = "sam_vit_h_4b8939.pth"
 
+
 class QuestionStatistics(Toplevel):
     def __init__(self, parent, csv_file_path):
         super().__init__(parent)
@@ -1610,6 +1611,7 @@ class AsyncVideoAnnotationTool:
             if self.playing:
                 self.update_video()
 
+
     def rewind(self):
         """FIXED: Skip backward 10 seconds in video"""
         if self.cap is None:
@@ -1840,11 +1842,12 @@ class AsyncVideoAnnotationTool:
             self.qa_states[item_id] = 'rejected'
             values = self.qa_listbox.item(item_id, 'values')
             self.qa_listbox.item(item_id, values=(*values[:3], 'Rejected'))
-            
+
             # Color the row red
             self.qa_listbox.item(item_id, tags=('rejected',))
             self.qa_listbox.tag_configure('rejected', background='lightcoral')
             
+
             # Make item editable
             self.editable_questions.add(item_id)
             
@@ -2048,6 +2051,7 @@ class AsyncVideoAnnotationTool:
                     start_frame = end_frame
                     clip_num += 1
 
+
                 cap.release()
                 cv2.destroyAllWindows()
 
@@ -2078,6 +2082,7 @@ class AsyncVideoAnnotationTool:
             if not ret:
                 messagebox.showerror("Error", "Could not read first frame from video.")
                 return
+
             
             # Convert first frame to PIL Image for circle selector
             first_frame_rgb = cv2.cvtColor(first_frame, cv2.COLOR_BGR2RGB)
@@ -2090,6 +2095,8 @@ class AsyncVideoAnnotationTool:
                     print(f"Circle {i+1} - Center: {center}, Radius: {radius}")
                 self.start_blur_and_track_process_multiple(circles)
             
+
+           
             CircleSelector(self.root, pil_image, on_circles_confirm)
             
         except Exception as e:
@@ -2618,8 +2625,11 @@ class AsyncVideoAnnotationTool:
     def finish_and_export_chat_template(self):
             """Export chat templates"""
              # Use qa_data with status filtering instead of accepted_qa_data
+
             accepted_qa_data = [ qa for qa in self.current_video_qa if qa.get('status') == 'accepted']
             if not accepted_qa_data:
+
+          
                 messagebox.showwarning("No Accepted Rows", 
                                     "No accepted Q&A pairs found.\n"
                                     "Please accept some questions first before exporting.")
@@ -2635,6 +2645,7 @@ class AsyncVideoAnnotationTool:
                 return
             
             def export_templates():
+
              
                 """
                 Build the prompt JSONL files from every row whose
@@ -2728,6 +2739,8 @@ class AsyncVideoAnnotationTool:
 
             threading.Thread(target=export_templates, daemon=True).start()
 
+
+             
     def cleanup_on_exit(self):
             """Cleanup when application exits"""
             print("Application shutting down...")
