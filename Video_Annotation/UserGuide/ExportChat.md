@@ -43,92 +43,38 @@ Select desired format:
 
 #### VideoLLaMA2 Format
 
-```json
-{
-  \"conversations\": [
-    {
-      \"role\": \"system\",
-      \"content\": \"You are a helpful assistant.\"
-    },
-    {
-      \"role\": \"user\",
-      \"content\": [
-        {
-          \"type\": \"video\",
-          \"video\": {
-            \"video_path\": \"/path/to/video.mp4\",
-            \"fps\": 1,
-            \"max_frames\": 4
-          }
-        },
-        {
-          \"type\": \"text\",
-          \"text\": \"What vehicles are visible in this traffic scene?\"
-        }
-      ]
-    },
-    {
-      \"role\": \"assistant\",
-      \"content\": [
-        {
-          \"type\": \"text\",
-          \"text\": \"I can see several cars, a bus, and a motorcycle in this busy intersection.\"
-        }
-      ]
-    }
-  ]
-}
+```
+{"prompt": "USER: How many lanes are visible in the video?\n<|video|>\nASSISTANT:", "answer": "Three lanes are visible", "video_path": "clip_012.mp4"}
+{"prompt": "USER: Did the bus stop at the intersection?\n<|video|>\nASSISTANT:", "answer": "No the bus did not stop at the intersection", "video_path": "clip_012.mp4"}
+{"prompt": "USER: Does any vehicle change lanes during the clip?\n<|video|>\nASSISTANT:", "answer": "Yes one vehicle changes lanes", "video_path":"clip_014.mp4"}
+{"prompt": "USER: How many traffic signs are visible in the frame?\n<|video|>\nASSISTANT:", "answer": "Two traffic signs are visible", "video_path": "clip_017.mp4"}
+{"prompt": "USER: What is the main color of the rightmost vehicle?\n<|video|>\nASSISTANT:", "answer": "The rightmost vehicle is blue", "video_path": "clip_017.mp4"}
+{"prompt": "USER: Does any car stop at a red light?\n<|video|>\nASSISTANT:", "answer": "Yes a car stops at a red light", "video_path": "clip_017.mp4"}
+
 ```
 
 #### LLaVA-Next-Video Format
 
-```json
-{
-  \"prompt\": \"USER: What vehicles are visible in this traffic scene?\
-<|video|>\
-ASSISTANT:\",
-  \"answer\": \"I can see several cars, a bus, and a motorcycle in this busy intersection.\",
-  \"video_path\": \"/path/to/video.mp4\"
-}
+```
+{"prompt": "USER: How many lanes are visible in the video?\n<|video|>\nASSISTANT:", "answer": "Three lanes are visible", "video_path": "clip_012.mp4"}
+{"prompt": "USER: Did the bus stop at the intersection?\n<|video|>\nASSISTANT:", "answer": "No the bus did not stop at the intersection", "video_path": "clip_012.mp4"}
+{"prompt": "USER: Does any vehicle change lanes during the clip?\n<|video|>\nASSISTANT:", "answer": "Yes one vehicle changes lanes", "video_path": "clip_014.mp4"}
+{"prompt": "USER: How many traffic signs are visible in the frame?\n<|video|>\nASSISTANT:", "answer": "Two traffic signs are visible", "video_path": "clip_017.mp4"}
+{"prompt": "USER: What is the main color of the rightmost vehicle?\n<|video|>\nASSISTANT:", "answer": "The rightmost vehicle is blue", "video_path": "clip_017.mp4"}
+{"prompt": "USER: Does any car stop at a red light?\n<|video|>\nASSISTANT:", "answer": "Yes a car stops at a red light", "video_path": "clip_017.mp4"}
+
 ```
 
 #### Qwen-VL2 Format
 
-```json
-{
-  \"conversations\": [
-    {
-      \"role\": \"system\",
-      \"content\": \"You are a helpful assistant.\"
-    },
-    {
-      \"role\": \"user\",
-      \"content\": [
-        {
-          \"type\": \"video\",
-          \"video\": {
-            \"video_path\": \"/path/to/video.mp4\",
-            \"fps\": 1,
-            \"max_frames\": 4
-          }
-        },
-        {
-          \"type\": \"text\",
-          \"text\": \"What vehicles are visible in this traffic scene?\"
-        }
-      ]
-    },
-    {
-      \"role\": \"assistant\",
-      \"content\": [
-        {
-          \"type\": \"text\",
-          \"text\": \"I can see several cars, a bus, and a motorcycle in this busy intersection.\"
-        }
-      ]
-    }
-  ]
-}
+```
+{"conversations": [{"role": "system", "content": "You are a helpful assistant."}, {"role": "user", "content": [{"type": "video", "video": {"video_path": "clip_012.mp4", "fps": 1, "max_frames": 4}}, {"type": "text", "text": "How many lanes are visible in the video?"}]}, {"role": "assistant", "content": [{"type": "text", "text": "Three lanes are visible"}]}]}
+{"conversations": [{"role": "system", "content": "You are a helpful assistant."}, {"role": "user", "content": [{"type": "video", "video": {"video_path": "clip_012.mp4", "fps": 1, "max_frames": 4}}, {"type": "text", "text": "Did the bus stop at the intersection?"}]}, {"role": "assistant", "content": [{"type": "text", "text": "No the bus did not stop at the intersection"}]}]}
+{"conversations": [{"role": "system", "content": "You are a helpful assistant."}, {"role": "user", "content": [{"type": "video", "video": {"video_path": "clip_014.mp4", "fps": 1, "max_frames": 4}}, {"type": "text", "text": "Does any vehicle change lanes during the clip?"}]}, {"role": "assistant", "content": [{"type": "text", "text": "Yes one vehicle changes lanes"}]}]}
+{"conversations": [{"role": "system", "content": "You are a helpful assistant."}, {"role": "user", "content": [{"type": "video", "video": {"video_path": "clip_017.mp4", "fps": 1, "max_frames": 4}}, {"type": "text", "text": "How many traffic signs are visible in the frame?"}]}, {"role": "assistant", "content": [{"type": "text", "text": "Two traffic signs are visible"}]}]}
+{"conversations": [{"role": "system", "content": "You are a helpful assistant."}, {"role": "user", "content": [{"type": "video", "video": {"video_path": "clip_017.mp4", "fps": 1, "max_frames": 4}}, {"type": "text", "text": "What is the main color of the rightmost vehicle?"}]}, {"role": "assistant", "content": [{"type": "text", "text": "The rightmost vehicle is blue"}]}]}
+{"conversations": [{"role": "system", "content": "You are a helpful assistant."}, {"role": "user", "content": [{"type": "video", "video": {"video_path": "clip_017.mp4", "fps": 1, "max_frames": 4}}, {"type": "text", "text": "Does any car stop at a red light?"}]}, {"role": "assistant", "content": [{"type": "text", "text": "Yes a car stops at a red light"}]}]}
+
 ```
 
 ### Output Files
@@ -145,52 +91,6 @@ ASSISTANT:\",
 
 Creates three separate files with all formats.
 
-### Export Log Example
-
-```
-EXPORT PROCESS LOG
-==================
-
-Step 1: Template Selection
-- Selected Format: All Templates
-- Current Video: traffic_scene_001.mp4
-- Accepted Q&A Pairs: 12
-- Templates Generated: 36 (12 × 3 formats)
-- Status: Stored in memory ✓
-
-Step 2: Processing Additional Videos
-- Video: intersection_view.mp4
-- Accepted Q&A Pairs: 8
-- Templates Generated: 24 (8 × 3 formats)
-- Total in Memory: 60 templates
-- Status: Ready for export ✓
-
-Step 3: Final Export Process
-- Export Directory: /path/to/training_data/
-- CSV Backup: annotations_backup_20241201_143052.csv
-- CSV Updated: annotations.csv (with status columns)
-
-File Generation:
-✓ model_train_videollama2.jsonl
-  - Records: 20
-  - Size: 45.2 KB
-
-✓ model_train_llava_next.jsonl
-  - Records: 20
-  - Size: 38.7 KB
-
-✓ model_train_qwen.jsonl
-  - Records: 20
-  - Size: 47.1 KB
-
-EXPORT SUMMARY:
-==============
-Total Processed Q&As: 20
-Total Template Records: 60
-Output Files Created: 3
-Processing Time: 2.3 seconds
-Status: Export Complete ✓
-```
 
 ## Quality Control Features
 
