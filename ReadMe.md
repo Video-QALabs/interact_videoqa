@@ -4,13 +4,15 @@
 - [3 March 2025] Training Code and Sample Dataset Released
 - [28 February 2025] Website is Live.
 - [16 February 2025] Paper submitted for a conference [Under Review].
+- [6 August 2025] Tool for Manual Annotation Release
 
 # *InterAct VideoQA*: A Benchmark Dataset for Video Question Answering in Traffic Intersection Monitoring
 <div>
 <a href="#"> Paper</a> |
 <a href="https://interact-videoqa.github.io/InterActVideoQA/">Website</a> |
 <a href="https://huggingface.co/datasets/joeWabbit/InterAct_Video_Reasoning_Rich_Video_QA_for_Urban_Traffic/blob/main/README.md">Data</a> |
-<a href="https://interact-videoqa.github.io/InterActVideoQA/docs/InterAct_VideoQADatasetDescription.pdf" target="_blank">Doc </a>
+<a href="https://interact-videoqa.github.io/InterActVideoQA/docs/InterAct_VideoQADatasetDescription.pdf" target="_blank">Doc </a> |
+<a href="https://github.com/joe-rabbit/interact_videoqa/tree/main/Video_Annotation" target="_blank"> Anotation Tool </a>
 </div>
 <hr>
 <div style="text-align: center;">
@@ -73,3 +75,4 @@ The main implementations for these models for InterAct VideoQA can be found here
 ```
 
   ```
+
