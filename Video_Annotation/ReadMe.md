@@ -15,7 +15,7 @@ For Linux/MacOS:
 
 - [Devbox](https://www.jetify.com/devbox)
 
-If there is with tkinter installation
+If there is with tkinter installation (outside the devbox shell)
 
 ```
 sudo apt-get install python3-tk
