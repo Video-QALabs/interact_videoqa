@@ -21,7 +21,7 @@ from ultralytics import YOLO
 from functools import wraps
 import torch
 from segment_anything import sam_model_registry, SamPredictor
-from Modules.QuestionStas import QuestionStatistics
+from Modules.QuestionStats import QuestionStatistics
 from Modules.CircleSelect import run_sam_on_circle, CircleSelector
 
 
@@ -356,7 +356,7 @@ class AsyncVideoAnnotationTool:
                                     "Note: Changes are in memory only. Use 'Finish and Export' to save permanently.")
                     
             except Exception as e:
-                    messagebox.showerror("Error", f"Failed to save changes: {str(e)}")
+                    messagebox.showerror("Error", f"Failed to save changes: ")
                     print(f"Error saving changes: {e}")
         
         def cancel_edit():
@@ -674,7 +674,7 @@ class AsyncVideoAnnotationTool:
             print(f"Found {len(videos)} video files")
             
         except Exception as e:
-            messagebox.showerror("Error", f"Could not read directory: {str(e)}")
+            messagebox.showerror("Error", f"Could not read directory: ")
 
     @safe_thread_operation
     def load_selected_video(self):
@@ -1158,7 +1158,7 @@ class AsyncVideoAnnotationTool:
             except Exception as e:
                 def show_error():
                     self.csv_status_var.set("Failed to load CSV")
-                    messagebox.showerror("Error", f"Could not load CSV file: {str(e)}")
+                    messagebox.showerror("Error", f"Could not load CSV file: ")
                 
                 self.root.after(0, show_error)
         
@@ -1503,7 +1503,7 @@ class AsyncVideoAnnotationTool:
             print(f"Processed {len(videos)} video files.")
 
         except Exception as e:
-            messagebox.showerror("Error", f"Could not process videos: {str(e)}")
+            messagebox.showerror("Error", f"Could not process videos: ")
 
     def blur_track(self):
         """Start the blur and track process"""
@@ -1544,7 +1544,7 @@ class AsyncVideoAnnotationTool:
             CircleSelector(self.root, pil_image, on_circles_confirm)
             
         except Exception as e:
-            messagebox.showerror("Error", f"Failed to start blur and track: {str(e)}")
+            messagebox.showerror("Error", "Failed to start blur and track: ")
 
     def start_blur_and_track_process_multiple(self, circles):
         """Start the blur and track process for multiple circles in a separate thread"""
@@ -1554,7 +1554,7 @@ class AsyncVideoAnnotationTool:
             try:
                 self.blur_and_track_yolo_sam_predictive(circles)
             except Exception as e:
-                self.root.after(0, lambda: messagebox.showerror("Error", f"Blur and track failed: {str(e)}"))
+                self.root.after(0, lambda: messagebox.showerror("Error", f"Blur and track failed: "))
                 self.root.after(0, lambda: self.status_var.set("Blur and track failed"))
         
         threading.Thread(target=blur_track_thread, daemon=True).start()
@@ -2061,7 +2061,7 @@ class AsyncVideoAnnotationTool:
                     self.root.after(0, update_ui)
                     
                 except Exception as e:
-                    self.root.after(0, lambda: messagebox.showerror("Error", f"Failed to generate templates: {str(e)}"))
+                    self.root.after(0, lambda: messagebox.showerror("Error", "Failed to generate templates: "))
             
             self.status_var.set("Generating templates...")
             threading.Thread(target=generate_templates, daemon=True).start()

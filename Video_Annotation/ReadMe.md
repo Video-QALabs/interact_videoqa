@@ -15,6 +15,12 @@ For Linux/MacOS:
 
 - [Devbox](https://www.jetify.com/devbox)
 
+If there is with tkinter installation
+
+```
+sudo apt-get install python3-tk
+```
+
 ## Setup and Usage
 
 To set up the SAM model:
