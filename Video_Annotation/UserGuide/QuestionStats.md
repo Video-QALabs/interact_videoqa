@@ -1,67 +1,69 @@
-# Question Statisitics
+# Question Statistics 📊
 
 <img width="1205" height="830" alt="image" src="../assets/Question_Stats.png" />
 
-A comprehensive tool for video analysis, Q&A annotation, and machine learning dataset preparation with support for multiple video language models.
+A comprehensive analytics dashboard for video Q&A datasets with interactive visualizations and hover tooltips for detailed insights.
 
-## Question Statistics
+## Question Statistics Dashboard 🎯
 
-Interactive analytics dashboard providing comprehensive insights into your Q&A dataset through a 4-panel layout.
+Interactive analytics dashboard providing comprehensive insights into your Q&A dataset through a modern 3×1 layout with hover functionality.
 
-### Dashboard Overview
+### Dashboard Overview 📱
 
-| Panel            | Content                  | Visualization                             |
-| ---------------- | ------------------------ | ----------------------------------------- |
-| **Top Left**     | Category Distribution    | Interactive pie chart with percentages    |
-| **Top Right**    | Total Statistics Summary | Key metrics and counts                    |
-| **Bottom Left**  | Objects in Answers       | Bar chart of detected objects             |
-| **Bottom Right** | Question Types           | Horizontal bar chart by question patterns |
+| Panel              | Content                     | Visualization                             | Interactive Features                    |
+| ------------------ | --------------------------- | ----------------------------------------- | --------------------------------------- |
+| **Top Left** 📈    | Vehicular vs Non-Vehicular  | Side-by-side bar chart by category        | Hover shows category, type, and count   |
+| **Top Center** 📊  | Category Distribution       | Colorful bar chart with count labels      | Hover displays category name and count  |
+| **Top Right** 🍩   | Proportion Overview         | Donut chart (65.1% vs 34.9%)              | Hover shows type, count, and percentage |
+| **Bottom Full** 🎨 | Question Types Distribution | Clustered scatter plot with 8 type groups | Hover reveals question type and text    |
 
-### Usage
+### Usage 🚀
 
-1. Load a CSV file containing Q&A data
-2. Click **\"Question Statistics\"** in the right panel
-3. View interactive analytics in the popup window
+1. Load a CSV file containing Q&A data 📁
+2. Click **"Question Statistics"** in the right panel 🖱️
+3. View interactive analytics with hover tooltips 👆
+4. Explore clusters in the scatter plot for detailed insights 🔍
 
-### Key Metrics Tracked
+### Key Features ✨
 
-#### Category Distribution
+#### 🚗 Vehicular vs Non-Vehicular Analysis
 
-- Visual breakdown of question categories
-- Percentage-based pie chart with legend
-- Color-coded segments for identification
+- **Interactive bar comparison** across all categories
+- **Real-time tooltips** showing exact counts
+- **Visual distinction** between vehicular and non-vehicular questions
+- **Category breakdown** (Attribution, Basic Counting, Event Reasoning, etc.)
 
-#### Dataset Statistics
+#### 📊 Category Distribution Insights
 
-- Total Q&A pairs count
-- Unique video files
-- Average Q&A per video
-- Number of question categories
+- **Total count display** on each bar
+- **Color-coded categories** for easy identification
+- **Hover details** with category names and question counts
+- **Compact visualization** optimized for space
 
-#### Object Detection in Answers
+#### 🍩 Proportion Donut Chart
 
-Automatically detects and counts mentions of:
+- **65.1% Vehicular** questions (pink segment)
+- **34.9% Non-Vehicular** questions (blue segment)
+- **Interactive hover** shows exact counts and percentages
+- **Clean, modern design** with minimal text clutter
 
-- 🚗 Cars (car, vehicle, automobile, auto)
-- 🚶 Pedestrians (pedestrian, people, person, walker)
-- 🚲 Bicycles (bicycle, bike, cyclist)
-- 🚛 Trucks (truck, lorry)
-- 🚌 Buses (bus)
-- 🏍️ Motorcycles (motorcycle, motorbike)
-- 🚦 Traffic Lights (traffic light, signal)
-- 🏢 Buildings (building, structure)
-- 🛣️ Roads (road, street, highway)
+#### 🎨 Question Types Scatter Plot
 
-#### Question Type Analysis
+**8 Clustered Question Categories:**
 
-Categorizes questions by starting patterns:
+- 🔵 **How** - Method/process questions
+- 🟠 **Is** - State/condition questions
+- 🟢 **Where** - Location/place questions
+- 🔴 **What** - Information/explanation questions
+- 🟣 **Why** - Reason/cause questions
+- 🟤 **When** - Time/timing questions
+- 🩷 **Who** - Questions about people/entities
+- ⚫ **Which** - Selection/choice questions
 
-- **What** - Information/explanation questions
-- **Who** - Questions about people/entities
-- **When** - Time/timing questions
-- **Where** - Location/place questions
-- **Why** - Reason/cause questions
-- **How** - Method/process questions
-- **Which** - Selection/choice questions
-- **Can/Could** - Ability/possibility questions
-- **Do/Does** - Action/state questions
+### Interactive Experience 🎮
+
+#### Hover Tooltips 💬
+
+- **Bar Charts**: Shows category name, question type, and exact count
+- **Donut Chart**: Displays type, count, and percentage breakdown
+- **Scatter Plot**: Reveals question type and first 50 characters of actual question text
