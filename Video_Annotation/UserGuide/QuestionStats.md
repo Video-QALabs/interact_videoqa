@@ -57,7 +57,7 @@ Interactive analytics dashboard providing comprehensive insights into your Q&A d
 - 🔴 **What** - Information/explanation questions
 - 🟣 **Why** - Reason/cause questions
 - 🟤 **When** - Time/timing questions
-- 🩷 **Who** - Questions about people/entities
+- 🟣 **Who** - Questions about people/entities
 - ⚫ **Which** - Selection/choice questions
 
 ### Interactive Experience 🎮
