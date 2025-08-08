@@ -39,4 +39,13 @@ If you encounter any bugs or have feature requests, please open an issue with:
 - Your environment details (OS, Python version)
 - Screenshots if applicable
 
+## Code 
+The structure of the code is as follows:
+The modules are stored 
+- [AsyncVideo](https://github.com/joe-rabbit/interact_videoqa/blob/main/Video_Annotation/Modules/AsyncVideoAnnotator.py) (Contains main code for the page that loads)
+- [QuestionStats](https://github.com/joe-rabbit/interact_videoqa/blob/main/Video_Annotation/Modules/QuestionStats.py) (Contains code for the statistics of the question from the csv file)
+- [CircleSelect](https://github.com/joe-rabbit/interact_videoqa/blob/main/Video_Annotation/Modules/CircleSelect.py) (Contains code for the blur and track functionality using yolo and sam )
+
+
+
 For questions or discussions, feel free to open a discussion thread or reach out.
