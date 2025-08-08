@@ -61,9 +61,9 @@ Manually blur select regions of the video to address privacy and ethical concern
 
 Export cleaned and annotated datasets into VLLM-ready templates including VideoLLaMA2, LLaVA-Next-Video, and Qwen-VL2 formats for seamless integration with downstream applications.
 
-## 🤝 Contributing
+## 🤝 [Contributing](./UserGuide/Contribution.md)
 
-For contributing to this project find details [here](./UserGuide/Contribution.md)
+Please feel free to open an issue to contribute.
 
 ## License
 
