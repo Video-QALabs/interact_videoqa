@@ -234,7 +234,7 @@ class AsyncVideoAnnotationTool:
         
         edit_window = Toplevel(self.root)
         edit_window.title("Edit Q&A Item")
-        edit_window.geometry("600x400")
+        edit_window.geometry("1200x960")
         edit_window.resizable(True, True)
         
         # Make dialog modal
@@ -1242,7 +1242,7 @@ class AsyncVideoAnnotationTool:
             self.update_counters_from_data()
             self.update_button_states()
             
-            messagebox.showinfo("Accept", "Question accepted successfully")
+            # messagebox.showinfo("Accept", "Question accepted successfully")
             
         else:  
             newly_accepted = []
@@ -1323,7 +1323,7 @@ class AsyncVideoAnnotationTool:
             self.update_counters_from_data()
             self.update_button_states()
             
-            messagebox.showinfo("Reject", "Question rejected. Double-click to edit.")
+            # messagebox.showinfo("Reject", "Question rejected. Double-click to edit.")
 
     def reset_annotation(self):
         """Reset the last action (undo functionality) with data persistence"""
