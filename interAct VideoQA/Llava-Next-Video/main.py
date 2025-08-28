@@ -22,7 +22,7 @@ def main():
     
     # Mode selection
     parser.add_argument("--mode", type=str, default="train", 
-                       choices=["train", "eval", "inference", "demo"],
+                       choices=["train", "eval", "inference"],
                        help="Operation mode")
     
     # Data paths

@@ -35,10 +35,10 @@ LORA_CONFIG = {
 
 # Data paths
 DATA_PATHS = {
-    "train_csv": "data/train/qa.csv",
-    "eval_csv": "data/eval/qa.csv",
-    "train_video_dir": "data/train/videos",
-    "eval_video_dir": "data/eval/videos",
+    "train_csv": "./data/train/qa.csv",
+    "eval_csv": "./data/eval/qa.csv",
+    "train_video_dir": "./data/train/videos",
+    "eval_video_dir": "./data/eval/videos",
     "checkpoint_dir": "checkpoints",
     "save_dir": "saved_models"
 }
