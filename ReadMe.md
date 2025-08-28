@@ -12,7 +12,6 @@
 <a href="https://interact-videoqa.github.io/InterActVideoQA/">Website</a> |
 <a href="https://huggingface.co/datasets/joeWabbit/InterAct_Video_Reasoning_Rich_Video_QA_for_Urban_Traffic/blob/main/README.md">Data</a> |
 <a href="https://interact-videoqa.github.io/InterActVideoQA/docs/InterAct_VideoQADatasetDescription.pdf" target="_blank">Doc </a> |
-<a href="https://github.com/joe-rabbit/interact_videoqa/tree/main/Video_Annotation" target="_blank"> Anotation Tool </a>
 </div>
 <hr>
 <div style="text-align: center;">
