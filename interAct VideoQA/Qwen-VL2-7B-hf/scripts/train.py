@@ -11,8 +11,8 @@ def train():
     model, tokenizer, processor = load_model()
     model = configure_lora(model)
     
-    csv_file = "/scratch/jnolas77/Videos/video_annotation.csv"  # Adjust as needed.
-    video_dir = "/scratch/jnolas77/Videos"                        # Adjust as needed.
+    csv_file = "../Videos/video_annotation.csv" 
+    video_dir = "../Videos"      
     
     dataset = VideoLlama3Dataset(csv_file, video_dir, processor,
                                  num_frames=config_dict["num_frames"],

@@ -1,21 +1,78 @@
 import argparse
+from scripts.model import setup_qwen_model
+from scripts.train import train
+from scripts.inference import inference
+from scripts.dataset import QwenVideoQADataset
 
-def main():
+def main(args=None):
     parser = argparse.ArgumentParser(description="Qwen2-VL Fine-tuning and Inference Project")
     parser.add_argument(
-         "--mode", 
-         choices=["train", "inference"], 
-         default="train",
-         help="Select 'train' to fine-tune the model, or 'inference' to run inference."
+        "--mode", 
+        choices=["train", "eval", "inference"], 
+        default="train",
+        help="Select mode: train, eval, or inference"
     )
-    args = parser.parse_args()
+    parser.add_argument(
+        "--checkpoint", 
+        type=str,
+        default=None,
+        help="Path to model checkpoint for evaluation/inference"
+    )
+    parser.add_argument(
+        "--batch_size",
+        type=int,
+        default=4,
+        help="Batch size for training/evaluation"
+    )
+    parser.add_argument(
+        "--num_epochs",
+        type=int,
+        default=10,
+        help="Number of training epochs"
+    )
+    parser.add_argument(
+        "--learning_rate",
+        type=float,
+        default=2e-5,
+        help="Learning rate"
+    )
+    
+    if args is not None:
+        args = parser.parse_args(args)
+    else:
+        args = parser.parse_args()
 
+    # Setup model and tokenizer
+    model, tokenizer = setup_qwen_model()
+    
     if args.mode == "train":
-        from train import main as train_main
-        train_main()
-    elif args.mode == "inference":
-        from inference import main as inference_main
-        inference_main()
+        # Create training dataset
+        train_dataset = QwenVideoQADataset(
+            video_dir="data/train/videos",
+            csv_file="data/train/qa.csv",
+            tokenizer=tokenizer
+        )
+        
+        # Train the model
+        train(
+            model=model,
+            train_dataset=train_dataset,
+            tokenizer=tokenizer,
+            batch_size=args.batch_size,
+            num_epochs=args.num_epochs,
+            learning_rate=args.learning_rate
+        )
+    
+    elif args.mode in ["eval", "inference"]:
+        if args.checkpoint is None:
+            raise ValueError("Checkpoint path is required for evaluation/inference mode")
+        
+        inference(
+            model=model,
+            tokenizer=tokenizer,
+            checkpoint_path=args.checkpoint
+        )
 
 if __name__ == "__main__":
+    main()
     main()
