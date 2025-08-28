@@ -3,10 +3,10 @@
 - [7 March 2025] Dataset description released
 - [3 March 2025] Training Code and Sample Dataset Released
 - [28 February 2025] Website is Live.
-- [16 February 2025] Paper submitted for a conference [Under Review].
-- [6 August 2025] Tool for Manual Annotation Release
+- [16 February 2025] Paper on archive.
 
-# *InterAct VideoQA*: A Benchmark Dataset for Video Question Answering in Traffic Intersection Monitoring
+# _InterAct VideoQA_: A Benchmark Dataset for Video Question Answering in Traffic Intersection Monitoring
+
 <div>
 <a href="#"> Paper</a> |
 <a href="https://interact-videoqa.github.io/InterActVideoQA/">Website</a> |
@@ -23,23 +23,22 @@
 
 # Related Works
 
-
-
 <div style="text-align: center;">
 <img src="https://github.com/user-attachments/assets/82c93cc6-4f7d-4e35-b38f-5079b1b12ef3"/>
 </div>
 
-
 # Dataset Download
+
 Dataset can be downloaded <a href="https://drive.google.com/drive/folders/1dwbeWHASKkLbLOImyHKE8of8hWCq7bdO?usp=drive_link">here</a>
 
-
 # Dataset Overview
+
 <p align="justify">
 InterAct VideoQA dataset comprises 28,800 question-answer pairs across various reasoning categories. A higher concentration appears in counting, attribute recognition, and event reasoning, followed by counterfactual inference and reverse reasoning.The dataset also illustrate the dataset's emphasis on vehicular-related questions, the dominance of attribution and event reasoning categories, and the distribution of question types (“what,” “where,” and “how”). This structured approach supports the analysis of complex, multi-event traffic scenarios requiring robust spatio-temporal reasoning. A rigorous human and GPT-assisted validation process ensures all annotations' consistency, accuracy, and reliability.
 </p>
 
 # Folder Structure
+
 ```
 data
 ├── videoannotations.csv
@@ -50,11 +49,15 @@ data
     └── ...
 
 ```
-# Model Setup 
+
+# Model Setup
+
 Please look at the official github page for the models to set up.
+
 - [VideoLLama2](https://github.com/DAMO-NLP-SG/VideoLLaMA2)
-- [LlavaNext-Video](https://github.com/LLaVA-VL/LLaVA-NeXT)  
+- [LlavaNext-Video](https://github.com/LLaVA-VL/LLaVA-NeXT)
 - [Qwen2-VL-7B-hf](https://github.com/QwenLM/Qwen2.5-VL)
+
 # Baseline
 
 <div style="text-align: center;">
@@ -64,7 +67,7 @@ Please look at the official github page for the models to set up.
 The main implementations for these models for InterAct VideoQA can be found here.
 
 [VideoLLama2](https://github.com/joe-rabbit/interact_videoqa/tree/main/interAct%20VideoQA/VideoLlama2) |
-[LlavaNext-Video](https://github.com/joe-rabbit/interact_videoqa/tree/main/interAct%20VideoQA/Llava-Next-Video) | 
+[LlavaNext-Video](https://github.com/joe-rabbit/interact_videoqa/tree/main/interAct%20VideoQA/Llava-Next-Video) |
 [Qwen2-VL-7B-hf](https://github.com/joe-rabbit/interact_videoqa/tree/main/interAct%20VideoQA/Qwen-VL2-7B-hf)
 
 # License
@@ -75,6 +78,4 @@ The main implementations for these models for InterAct VideoQA can be found here
 
 ```
 
-  ```
-
-
+```
