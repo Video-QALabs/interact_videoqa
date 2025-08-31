@@ -3,10 +3,10 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 import json
 import os
-from dataset import LlavaVideoQADataset
-from model_setup import setup_llava_model
-from inference import batch_inference, evaluate_predictions
-from config import DATA_PATHS, TRAINING_CONFIG
+from scripts.dataset import LlavaVideoQADataset
+from scripts.model_setup import setup_llava_model
+from scripts.inference import batch_inference, evaluate_predictions
+from scripts.config import DATA_PATHS, TRAINING_CONFIG
 
 def run_evaluation(checkpoint_path=None, eval_csv=None, eval_video_dir=None, 
                   batch_size=1, max_eval_samples=None):
