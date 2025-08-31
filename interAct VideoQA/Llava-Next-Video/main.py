@@ -9,13 +9,13 @@ import torch
 from torch.utils.data import DataLoader
 
 # Import our modules
-from config import TRAINING_CONFIG, DATA_PATHS, MODEL_CONFIG
-from dataset import LlavaVideoQADataset
-from model_setup import setup_llava_model
-from train import train_model
-from evaluate import run_evaluation, quick_evaluation
-from inference import inference_single_video, batch_inference
-from save_model import save_model, load_checkpoint
+from scripts.config import TRAINING_CONFIG, DATA_PATHS, MODEL_CONFIG
+from scripts.dataset import LlavaVideoQADataset
+from scripts.model_setup import setup_llava_model
+from scripts.train import train_model
+from scripts.evaluate import run_evaluation, quick_evaluation
+from scripts.inference import inference_single_video, batch_inference
+from scripts.save_model import save_model, load_checkpoint
 
 def main():
     parser = argparse.ArgumentParser(description="LLaVA-Next-Video Training and Inference")

@@ -1,8 +1,8 @@
 import torch
 from tqdm import tqdm
 import os
-from dataset import LlavaVideoQADataset
-from config import GENERATION_CONFIG
+from scripts.dataset import LlavaVideoQADataset
+from scripts.config import GENERATION_CONFIG
 
 def inference_single_video(model, processor, video_path, question, device):
     """

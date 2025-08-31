@@ -5,7 +5,7 @@ import numpy as np
 import av
 from torch.utils.data import Dataset
 from PIL import Image
-from config import MODEL_CONFIG
+from scripts.config import MODEL_CONFIG
 
 class LlavaVideoQADataset(Dataset):
     """
@@ -84,9 +84,9 @@ class LlavaVideoQADataset(Dataset):
 
     def __getitem__(self, idx: int):
         row = self.data.iloc[idx]
-        video_file = row["Video_File_Path"].strip()
-        question = row["Questions"].strip()
-        answer = row["Answers"].strip()
+        video_file = row["video_file_path"].strip()
+        question = row["question"].strip()
+        answer = row["answer"].strip()
         
         # Handle video path
         video_path = os.path.join(self.video_dir, video_file)
