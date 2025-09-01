@@ -2,7 +2,7 @@ import os
 import torch
 import json
 from peft import get_peft_model_state_dict
-from config import DATA_PATHS
+from scripts.config import DATA_PATHS
 
 def save_model(model, processor, save_dir=None):
     """

@@ -3,7 +3,7 @@
 # Training configuration
 TRAINING_CONFIG = {
     "lr": 5e-5,
-    "max_epochs": 3,
+    "max_epochs": 1,
     "accumulate_grad_batches": 2,
     "gradient_clip_val": 1.0,
     "batch_size": 1,
@@ -17,7 +17,8 @@ TRAINING_CONFIG = {
 # Model configuration
 MODEL_CONFIG = {
     "model_id": "llava-hf/LLaVA-NeXT-Video-7B-hf",
-    "num_frames": 8,
+    "cache_dir": "/scratch/kvinod/VideoQA/interact_videoqa/interAct VideoQA/Llava-Next-Video/cache",
+    "num_frames": 10,
     "max_new_tokens": 128,
     "temperature": 0.7,
     "top_p": 0.9,
@@ -30,15 +31,15 @@ LORA_CONFIG = {
     "lora_alpha": 32,
     "lora_dropout": 0.05,
     "bias": "none",
-    "task_type": "VL"
+    "task_type": "CAUSAL_LM"
 }
 
 # Data paths
 DATA_PATHS = {
-    "train_csv": "./data/train/qa.csv",
-    "eval_csv": "./data/eval/qa.csv",
-    "train_video_dir": "./data/train/videos",
-    "eval_video_dir": "./data/eval/videos",
+    "train_csv": "../qa.csv",
+    "eval_csv": "../eval/qa.csv",
+    "train_video_dir": "../1.43pm_10.1mins_clips_60",
+    "eval_video_dir": "../eval/videos",
     "checkpoint_dir": "checkpoints",
     "save_dir": "saved_models"
 }

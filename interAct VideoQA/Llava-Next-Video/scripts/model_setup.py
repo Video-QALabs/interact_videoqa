@@ -1,9 +1,9 @@
 from transformers import LlavaNextVideoProcessor, BitsAndBytesConfig, LlavaNextVideoForConditionalGeneration
 import torch
 from peft import LoraConfig, get_peft_model
-from config import MODEL_CONFIG, LORA_CONFIG
+from scripts.config import MODEL_CONFIG, LORA_CONFIG
 
-def setup_llava_model(checkpoint_path=None):
+def setup_llava_model(checkpoint_path=None,cache_dir=None):
     """
     Setup the LLaVA-Next-Video model with LoRA configuration.
     
@@ -14,6 +14,11 @@ def setup_llava_model(checkpoint_path=None):
         tuple: (model, processor)
     """
     model_id = MODEL_CONFIG["model_id"]
+    if cache_dir:
+        os.environ["HF_HOME"]=cache_dir
+        os.environ["HUGGINGFACE_HUB_CACHE"] = cache_dir
+        print(f"Using custom cache directory: {cache_dir}")
+    
     
     # Setup processor
     processor = LlavaNextVideoProcessor.from_pretrained(model_id)

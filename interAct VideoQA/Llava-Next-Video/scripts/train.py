@@ -2,7 +2,7 @@ import torch
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 import os
-from config import TRAINING_CONFIG, GENERATION_CONFIG
+from scripts.config import TRAINING_CONFIG, GENERATION_CONFIG
 
 def train_model(model, processor, train_loader, eval_loader, device):
     """
