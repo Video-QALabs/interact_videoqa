@@ -4,125 +4,238 @@ import torch
 import numpy as np
 import cv2
 from torch.utils.data import Dataset
-from decord import VideoReader, cpu
+from PIL import Image
+from pathlib import Path
+from scripts.config import MODEL_CONFIG
 
-class VideoLlama3Dataset(Dataset):
-    def __init__(self, csv_file: str, video_dir: str, processor, num_frames: int = 4, 
-                 extension: str = ".mp4", target_size: tuple = None):
-        """
-        Args:
-            csv_file: CSV file with "Video_File_Path", "Questions", and "Answers".
-            video_dir: Directory containing the videos.
-            processor: Processor to tokenize text and process images.
-            num_frames: Number of frames to sample per video.
-            extension: Video file extension if not provided.
-            target_size: Tuple (width, height) to resize video frames.
-        """
-        self.df = pd.read_csv(csv_file, dtype={"Video_File_Path": str, "Questions": str, "Answers": str})
+class MemoryOptimizedQwenVideoQADataset(Dataset):
+    """
+    Memory-optimized dataset for Qwen2.5-VL that returns chat-style `messages`
+    suitable for processor.apply_chat_template + process_vision_info.
+    Falls back to frames or text-only when videos are missing/unreadable.
+    """
+
+    def __init__(
+        self,
+        csv_file: str,
+        video_dir: str,
+        processor,
+        tokenizer,
+        single_video_mode: bool = False,
+        video_path: str = None,
+        question: str = None,
+    ):
         self.video_dir = video_dir
         self.processor = processor
-        self.num_frames = num_frames
-        self.extension = extension
-        self.target_size = target_size
+        self.tokenizer = tokenizer
+
+        # memory-related knobs
+        self.max_pixels = MODEL_CONFIG.get("max_pixels", 120 * 140)
+        self.max_frames = MODEL_CONFIG.get("max_frames", 3)
+        self.fps = MODEL_CONFIG.get("fps", 0.3)
+        self.image_size = MODEL_CONFIG.get("image_size", 168)
+        self.video_max_length = MODEL_CONFIG.get("video_max_length", 20)
+        self.max_seq_length = MODEL_CONFIG.get("max_seq_length", 4096)
+
+        self.single_video_mode = single_video_mode
+        if single_video_mode:
+            self.data = pd.DataFrame(
+                [{
+                    "video_file_path": video_path,
+                    "question": question,
+                    "answer": "N/A",
+                }]
+            )
+        else:
+            self.data = pd.read_csv(csv_file)
+
+    # -------- utils --------
 
     def __len__(self):
-        return len(self.df)
+        return len(self.data)
 
-    def read_video(self, video_path: str) -> torch.Tensor:
+    def _safe_str(self, x, default=""):
+        if isinstance(x, str):
+            return x.strip()
+        if x is None or (isinstance(x, float) and np.isnan(x)):
+            return default
+        return str(x).strip()
+
+    def _to_local_path(self, p: str) -> str:
+        """Return a normalized absolute local path (no file://)."""
+        return str(Path(p).expanduser().resolve())
+
+    # -------- frame extraction --------
+
+    def extract_and_resize_frames(self, video_path: str, max_frames: int = 3) -> list:
+        """
+        Extract up to `max_frames` frames from a local video file, resized to image_size.
+        Returns a list of PIL Images (length guaranteed to be max_frames by padding).
+        """
         try:
-            vr = VideoReader(video_path, ctx=cpu(0))
-        except Exception as e:
-            raise RuntimeError(f"Error opening video file {video_path}: {e}")
-        total_frames = len(vr)
-        # Evenly sample indices.
-        indices = np.linspace(0, total_frames - 1, num=self.num_frames, dtype=int)
-        frames = vr.get_batch(indices)
-        if self.target_size is not None:
-            frames_np = frames.cpu().numpy()
-            resized_frames = []
-            for frame in frames_np:
-                resized = cv2.resize(frame, self.target_size)
-                resized_frames.append(torch.tensor(resized, dtype=torch.float))
-            frames_tensor = torch.stack(resized_frames)
-        else:
-            frames_tensor = frames.to(dtype=torch.float)
-        return frames_tensor
+            cap = cv2.VideoCapture(video_path)
+            if not cap.isOpened():
+                raise ValueError(f"Cannot open video: {video_path}")
 
-    @staticmethod
-    def flatten_conversation(conversation):
-        flattened = ""
-        for msg in conversation:
-            role = msg["role"].capitalize()
-            content = msg["content"]
-            if isinstance(content, list):
-                parts = []
-                for item in content:
-                    if isinstance(item, dict):
-                        if item.get("type") == "video":
-                            parts.append("<|video|>")
-                        elif item.get("type") == "text":
-                            parts.append(item.get("text", ""))
-                    else:
-                        parts.append(str(item))
-                content = " ".join(parts)
-            flattened += f"{role}: {content}\n"
-        return flattened.strip()
+            total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+            fps = cap.get(cv2.CAP_PROP_FPS)
+            duration = total_frames / fps if fps and fps > 0 else 0
+
+            # clamp duration
+            if duration and duration > self.video_max_length and fps and fps > 0:
+                max_frame_idx = int(fps * self.video_max_length)
+                total_frames = min(total_frames, max_frame_idx)
+
+            if total_frames <= 0:
+                raise ValueError("Video appears to have 0 frames")
+
+            # choose indices
+            if total_frames <= max_frames:
+                step = max(1, total_frames // max_frames)  # avoid step=0
+                frame_indices = list(range(0, total_frames, step))[:max_frames]
+            else:
+                frame_indices = np.linspace(0, total_frames - 1, max_frames, dtype=int).tolist()
+
+            frames = []
+            for frame_idx in frame_indices:
+                cap.set(cv2.CAP_PROP_POS_FRAMES, int(frame_idx))
+                ret, frame = cap.read()
+                if not ret or frame is None:
+                    continue
+                frame = cv2.resize(frame, (self.image_size, self.image_size), interpolation=cv2.INTER_AREA)
+                frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                frames.append(Image.fromarray(frame))
+
+            cap.release()
+
+            # pad/ensure length
+            while len(frames) < max_frames:
+                if frames:
+                    frames.append(frames[-1])
+                else:
+                    frames.append(Image.new("RGB", (self.image_size, self.image_size), color="black"))
+
+            return frames[:max_frames]
+
+        except Exception as e:
+            print(f"Error extracting frames from {video_path}: {e}")
+            black = Image.new("RGB", (self.image_size, self.image_size), color="black")
+            return [black] * max_frames
+
+    # -------- main sample builder --------
 
     def __getitem__(self, idx: int):
-        row = self.df.iloc[idx]
-        video_file = row["Video_File_Path"].strip()
-        question = row["Questions"].strip()
-        answer = row["Answers"].strip()
+        """
+        Returns a dict:
+          {
+            "messages": [
+              {
+                "role": "user",
+                "content": [
+                  {"type": "video", "video": <abs local path>, "max_pixels": ..., "fps": ...},
+                  {"type": "text", "text": <question>}
+                ]
+              }
+            ],
+            "ground_truth": <str>
+          }
+        If no video is available/readable, falls back to frames or text-only.
+        """
+        row = self.data.iloc[idx]
+        video_file = self._safe_str(row.get("video_file_path", ""), "")
+        question = self._safe_str(row.get("question", ""), "Please describe what happens in the video.")
+        answer = self._safe_str(row.get("answer", ""), "N/A")
 
-        video_path = os.path.join(self.video_dir, video_file)
-        if not os.path.splitext(video_path)[1]:
-            video_path += self.extension
+        # resolve path (probe extension if needed)
+        video_path = os.path.join(self.video_dir, video_file) if video_file else ""
+        if video_path and not os.path.splitext(video_path)[1]:
+            for ext in (".mp4", ".avi", ".mov", ".mkv"):
+                cand = video_path + ext
+                if os.path.exists(cand):
+                    video_path = cand
+                    break
 
-        clip = self.read_video(video_path)
+        # 1) Preferred: direct video (absolute local path, NO file://)
+        if video_path and os.path.exists(video_path):
+            messages = [{
+                "role": "user",
+                "content": [
+                    {
+                        "type": "video",
+                        "video": self._to_local_path(video_path),
+                        "max_pixels": self.max_pixels,
+                        "fps": self.fps,
+                    },
+                    {"type": "text", "text": question or "Please answer the question about this video."},
+                ],
+            }]
+            return {"messages": messages, "ground_truth": answer}
 
-        conversation = [
-            {"role": "system", "content": "You are a helpful assistant."},
-            {"role": "user", "content": [
-                {"type": "video", "video": {"video_path": video_path, "fps": 1, "max_frames": self.num_frames}},
-                {"type": "text", "text": question}
-            ]},
-            {"role": "assistant", "content": [
-                {"type": "text", "text": answer}
-            ]}
-        ]
-        conversation_text = self.flatten_conversation(conversation)
-        inputs = self.processor(
-            text=conversation_text,
-            return_tensors="pt"
-        )
-        processed_inputs = {k: v.squeeze(0) if isinstance(v, torch.Tensor) else v for k, v in inputs.items()}
-        if "pixel_values" in processed_inputs:
-            from utils import reduce_tensor
-            processed_inputs["pixel_values"] = reduce_tensor(processed_inputs["pixel_values"], spatial_factor=2)
-            processed_inputs["pixel_values"] = processed_inputs["pixel_values"].to(torch.float16)
-        processed_inputs["labels"] = processed_inputs["input_ids"].clone()
-        return processed_inputs
+        # 2) Fallback: a few frames → images
+        frames = []
+        try:
+            if video_path:
+                frames = self.extract_and_resize_frames(video_path, max_frames=self.max_frames)
+                frames = [f for f in frames if isinstance(f, Image.Image)]
+        except Exception:
+            frames = []
 
-def video_llama3_collate_fn(examples):
-    from torch.nn.utils.rnn import pad_sequence
-    batch = {}
-    # Pad input_ids and attention_mask.
-    for key in ["input_ids", "attention_mask"]:
-        # Use processor's pad token id if available, or default to 0.
-        pad_value = examples[0].get("pad_token_id", 0)
-        batch[key] = pad_sequence(
-            [ex[key] for ex in examples],
-            batch_first=True,
-            padding_value=pad_value
-        )
-    if "labels" in examples[0]:
-        batch["labels"] = pad_sequence(
-            [ex["labels"] for ex in examples],
-            batch_first=True,
-            padding_value=-100
-        )
-    if "pixel_values" in examples[0]:
-        from utils import reduce_tensor
-        reduced = [reduce_tensor(ex["pixel_values"], spatial_factor=2) for ex in examples]
-        batch["pixel_values"] = torch.stack(reduced, dim=0)
-    return batch
+        if frames:
+            messages = [{
+                "role": "user",
+                "content": (
+                    [{"type": "text", "text": f"These {len(frames)} frames are from a video. {question}"}] +
+                    [{"type": "image", "image": frame} for frame in frames]
+                ),
+            }]
+            return {"messages": messages, "ground_truth": answer}
+
+        # 3) Last resort: text-only (keeps the pipeline alive)
+        messages = [{
+            "role": "user",
+            "content": [{"type": "text", "text": f"(No video available) {question}"}],
+        }]
+        return {"messages": messages, "ground_truth": answer}
+
+    # -------- collate --------
+
+    def collate_fn_fixed(self, batch):
+        """
+        Collate for messages-based batches.
+        We just pack lists; the processor will tokenize/build tensors later.
+        """
+        # Expect dicts with "messages" and "ground_truth"
+        messages = []
+        gts = []
+        for item in batch:
+            messages.append(item.get("messages", []))
+            gts.append(item.get("ground_truth", "N/A"))
+        return {"messages": messages, "ground_truth": gts}
+
+
+# -------- dataloader helper --------
+
+def create_memory_efficient_dataloader(dataset, batch_size=1, shuffle=True):
+    from torch.utils.data import DataLoader
+    return DataLoader(
+        dataset,
+        batch_size=batch_size,
+        shuffle=shuffle,
+        collate_fn=dataset.collate_fn_fixed,
+        num_workers=0,
+        pin_memory=False,
+        drop_last=True,
+        persistent_workers=False,
+    )
+
+
+# -------- optional: tiny utility to clear cache --------
+
+def clear_memory_cache():
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+        torch.cuda.synchronize()
+        mem_alloc = torch.cuda.memory_allocated() / (1024 ** 3)
+        mem_resv = torch.cuda.memory_reserved() / (1024 ** 3)
+        return mem_alloc, mem_resv
+    return 0.0, 0.0
