@@ -20,7 +20,7 @@ TRAINING_CONFIG = {
 # Model configuration - MEMORY OPTIMIZED
 MODEL_CONFIG = {
     "model_id": "Qwen/Qwen2.5-VL-7B-Instruct",
-    "cache_dir": "/scratch/kvinod/VideoQA/interact_videoqa/interAct VideoQA/Llava-Next-Video/cache",
+    "cache_dir": "",
     "max_pixels": 120 * 140,  # FURTHER REDUCED for memory safety
     "fps": 0.3,  # Further reduced FPS for fewer frames
     "max_frames": 3,  # Further reduced frames
@@ -46,7 +46,7 @@ LORA_CONFIG = {
 DATA_PATHS = {
     "train_csv": "../qa.csv",
     "eval_csv": "../eval/qa.csv",
-    "train_video_dir": "../data/1.43pm_10.1mins_clips_60",
+    "train_video_dir": "../data",
     "eval_video_dir": "../eval/videos",
     "checkpoint_dir": "checkpoints",
     "save_dir": "saved_models"
