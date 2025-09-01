@@ -28,7 +28,7 @@
 
 # Dataset Download
 
-Dataset can be downloaded <a href="https://drive.google.com/drive/folders/1dwbeWHASKkLbLOImyHKE8of8hWCq7bdO?usp=drive_link">here</a>
+Dataset can be downloaded <a href="https://huggingface.co/datasets/joeWabbit/InterAct_Video_Reasoning_Rich_Video_QA_for_Urban_Traffic/blob/main/README.md">here</a>
 
 # Dataset Overview
 
@@ -78,4 +78,5 @@ The main implementations for these models for InterAct VideoQA can be found here
 ```
 
 ```
+
 
