@@ -1,38 +1,39 @@
-from transformers import LlavaNextVideoProcessor, BitsAndBytesConfig, LlavaNextVideoForConditionalGeneration
+from transformers import Qwen2_5_VLForConditionalGeneration, AutoTokenizer, AutoProcessor, BitsAndBytesConfig
 import torch
+import os
 from peft import LoraConfig, get_peft_model
 from scripts.config import MODEL_CONFIG, LORA_CONFIG
 
-def setup_llava_model(checkpoint_path=None,cache_dir=None):
+def setup_qwen_model(checkpoint_path=None, cache_dir=None):
     """
-    Setup the LLaVA-Next-Video model with LoRA configuration.
+    Setup the Qwen2.5-VL model with LoRA configuration.
     
     Args:
         checkpoint_path (str, optional): Path to load model checkpoint
+        cache_dir (str, optional): Custom cache directory
     
     Returns:
         tuple: (model, processor)
     """
     model_id = MODEL_CONFIG["model_id"]
+    
     if cache_dir:
-        os.environ["HF_HOME"]=cache_dir
+        os.environ["HF_HOME"] = cache_dir
         os.environ["HUGGINGFACE_HUB_CACHE"] = cache_dir
         print(f"Using custom cache directory: {cache_dir}")
     
+    # Setup processor and tokenizer
+    processor = AutoProcessor.from_pretrained(model_id)
+    tokenizer = AutoTokenizer.from_pretrained(model_id)
     
-    # Setup processor
-    processor = LlavaNextVideoProcessor.from_pretrained(model_id)
-    processor.tokenizer.padding_side = "left"
-    
-    # Add pad token if it doesn't exist
-    if processor.tokenizer.pad_token is None:
-        processor.tokenizer.pad_token = processor.tokenizer.eos_token
-        processor.tokenizer.pad_token_id = processor.tokenizer.eos_token_id
+    # Configure tokenizer
+    tokenizer.padding_side = "left"
+
     
     if checkpoint_path:
         # Load from checkpoint
         print(f"Loading model from checkpoint: {checkpoint_path}")
-        model = LlavaNextVideoForConditionalGeneration.from_pretrained(
+        model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
             checkpoint_path,
             torch_dtype=torch.float16,
             device_map="auto"
@@ -47,7 +48,7 @@ def setup_llava_model(checkpoint_path=None,cache_dir=None):
         )
         
         # Load base model
-        model = LlavaNextVideoForConditionalGeneration.from_pretrained(
+        model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
             model_id,
             torch_dtype=torch.float16,
             quantization_config=bnb_config,
@@ -57,8 +58,8 @@ def setup_llava_model(checkpoint_path=None,cache_dir=None):
         # Disable cache for training
         model.config.use_cache = False
         
-        # Setup LoRA configuration
-        target_modules = find_all_target_modules(model)
+        # Setup LoRA configuration for Qwen2.5-VL
+        target_modules = find_qwen_target_modules(model)
         lora_config = LoraConfig(
             r=LORA_CONFIG["r"],
             lora_alpha=LORA_CONFIG["lora_alpha"],
@@ -74,30 +75,36 @@ def setup_llava_model(checkpoint_path=None,cache_dir=None):
         # Print trainable parameters
         model.print_trainable_parameters()
     
-    return model, processor
+    return model, processor, tokenizer
 
-def find_all_target_modules(model):
-    """Find all modules that can be trained with LoRA."""
+def find_qwen_target_modules(model):
+    """Find all modules that can be trained with LoRA in Qwen2.5-VL."""
     target_modules = set()
     
-    # Vision modules - multimodal projector
+    # Vision modules - visual projection layers
     for name, module in model.named_modules():
-        if "multi_modal_projector" in name and isinstance(module, torch.nn.Linear):
-            target_modules.add(name)
+        if "visual" in name and isinstance(module, torch.nn.Linear):
+            if any(sub in name for sub in ["proj", "fc", "linear"]):
+                target_modules.add(name.split('.')[-1])  # Get module name only
     
-    # Language model modules
+    # Language model modules - Qwen2.5 architecture
     for name, module in model.named_modules():
-        if "language_model.model.layers" in name and isinstance(module, torch.nn.Linear):
+        if isinstance(module, torch.nn.Linear):
             if any(sub in name for sub in ["q_proj", "k_proj", "v_proj", "o_proj",
-                                         "up_proj", "down_proj", "gate_proj"]):
-                target_modules.add(name)
+                                         "up_proj", "down_proj", "gate_proj",
+                                         "lm_head"]):
+                target_modules.add(name.split('.')[-1])  # Get module name only
     
-    # Convert to list and print for debugging
-    target_modules = list(target_modules)
+    # Convert to list and remove duplicates
+    target_modules = list(set(target_modules))
+    
+    # If no modules found, use common defaults for Qwen
+    if not target_modules:
+        target_modules = ["q_proj", "k_proj", "v_proj", "o_proj", 
+                         "up_proj", "down_proj", "gate_proj"]
+    
     print(f"Found {len(target_modules)} target modules for LoRA:")
-    for module in target_modules[:5]:  # Print first 5
+    for module in target_modules:
         print(f"  - {module}")
-    if len(target_modules) > 5:
-        print(f"  ... and {len(target_modules) - 5} more")
     
     return target_modules

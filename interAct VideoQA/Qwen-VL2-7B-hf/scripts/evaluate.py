@@ -3,8 +3,8 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 import json
 import os
-from scripts.dataset import LlavaVideoQADataset
-from scripts.model_setup import setup_llava_model
+from scripts.dataset import MemoryOptimizedQwenVideoQADataset  # Fixed import
+from scripts.model_setup import setup_qwen_model
 from scripts.inference import batch_inference, evaluate_predictions
 from scripts.config import DATA_PATHS, TRAINING_CONFIG
 
@@ -29,18 +29,19 @@ def run_evaluation(checkpoint_path=None, eval_csv=None, eval_video_dir=None,
     
     # Setup model
     print("Setting up model...")
-    model, processor = setup_llava_model(checkpoint_path=checkpoint_path)
-    
+    model, processor, tokenizer = setup_qwen_model(checkpoint_path=checkpoint_path)
+
     # Get device
     device = next(model.parameters()).device
     print(f"Using device: {device}")
     
     # Create evaluation dataset
     print(f"Loading evaluation dataset from: {eval_csv}")
-    eval_dataset = LlavaVideoQADataset(
+    eval_dataset = MemoryOptimizedQwenVideoQADataset(
         csv_file=eval_csv,
         video_dir=eval_video_dir,
-        processor=processor
+        processor=processor,
+        tokenizer=tokenizer
     )
     
     # Limit dataset size if specified
@@ -57,7 +58,8 @@ def run_evaluation(checkpoint_path=None, eval_csv=None, eval_video_dir=None,
         processor=processor,
         eval_dataset=eval_dataset,
         device=device,
-        batch_size=batch_size
+        batch_size=batch_size,
+        tokenizer=tokenizer
     )
     
     # Evaluate predictions
@@ -85,13 +87,13 @@ def run_evaluation(checkpoint_path=None, eval_csv=None, eval_video_dir=None,
     with open(results_file, "w") as f:
         json.dump(results, f, indent=2)
     
-    print(f"✓ Results saved to: {results_file}")
+    print(f"Results saved to: {results_file}")
     
     return results
 
 def quick_evaluation(model, processor, eval_loader, device, max_batches=None):
     """
-    Quick evaluation during training.
+    Quick evaluation during training with memory optimizations.
     
     Args:
         model: Model to evaluate
@@ -111,37 +113,51 @@ def quick_evaluation(model, processor, eval_loader, device, max_batches=None):
     sample_predictions = []
     sample_ground_truths = []
     
+    # Get tokenizer
+    tokenizer = getattr(processor, 'tokenizer', processor)
+    
     with torch.no_grad():
-        for batch_idx, batch in enumerate(tqdm(eval_loader, desc="Quick Eval")):
+        for batch_idx, batch in enumerate(tqdm(eval_loader, desc="Quick Eval", leave=False)):
             if max_batches and batch_idx >= max_batches:
                 break
                 
             try:
-                # Prepare inputs
-                gen_inputs = {k: v for k, v in batch.items() 
-                            if k in ["input_ids", "attention_mask", "pixel_values_videos"]}
-                gen_inputs = {k: v.to(device) if isinstance(v, torch.Tensor) else v 
-                            for k, v in gen_inputs.items()}
+                # Clear cache periodically
+                if batch_idx % 3 == 0:
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
                 
-                # Generate
+                # Prepare inputs - only essential ones
+                gen_inputs = {}
+                for k, v in batch.items():
+                    if k == "ground_truth":
+                        continue
+                    if k in ["input_ids", "attention_mask", "pixel_values_videos"] and isinstance(v, torch.Tensor):
+                        gen_inputs[k] = v.to(device)
+                
+                if "input_ids" not in gen_inputs:
+                    continue
+                
+                # Generate with conservative settings
                 generated_ids = model.generate(
                     **gen_inputs,
-                    max_new_tokens=64,  # Shorter for quick eval
+                    max_new_tokens=32,  # Short for quick eval
                     do_sample=False,
-                    pad_token_id=processor.tokenizer.pad_token_id,
-                    eos_token_id=processor.tokenizer.eos_token_id
+                    pad_token_id=tokenizer.pad_token_id or tokenizer.eos_token_id,
+                    eos_token_id=tokenizer.eos_token_id,
+                    use_cache=False
                 )
                 
                 # Decode
                 prompt_length = batch["input_ids"].shape[1]
                 new_tokens = generated_ids[:, prompt_length:]
-                predictions = processor.batch_decode(
+                predictions = tokenizer.batch_decode(
                     new_tokens, skip_special_tokens=True, clean_up_tokenization_spaces=True
                 )
                 
                 # Count statistics
-                batch_size = len(predictions)
-                total_samples += batch_size
+                batch_size_actual = len(predictions)
+                total_samples += batch_size_actual
                 
                 for pred in predictions:
                     pred = pred.strip()
@@ -151,14 +167,14 @@ def quick_evaluation(model, processor, eval_loader, device, max_batches=None):
                         empty_generations += 1
                 
                 # Save samples
-                if len(sample_predictions) < 5:
-                    sample_predictions.extend(predictions[:5-len(sample_predictions)])
+                if len(sample_predictions) < 3:
+                    sample_predictions.extend(predictions[:3-len(sample_predictions)])
                     sample_ground_truths.extend(
-                        batch.get("ground_truth", ["N/A"] * batch_size)[:5-len(sample_ground_truths)]
+                        batch.get("ground_truth", ["N/A"] * batch_size_actual)[:3-len(sample_ground_truths)]
                     )
                 
             except Exception as e:
-                print(f"Quick eval error: {e}")
+                print(f"Quick eval error at batch {batch_idx}: {e}")
                 continue
     
     model.train()
@@ -182,13 +198,13 @@ def quick_evaluation(model, processor, eval_loader, device, max_batches=None):
     print(f"Empty generation rate: {empty_rate:.2%}")
     
     if sample_predictions:
-        print(f"\nSample Prediction:")
-        print(f"Generated: {sample_predictions[0]}")
-        print(f"Expected: {sample_ground_truths[0]}")
+        print(f"Sample Generation:")
+        print(f"Generated: '{sample_predictions[0][:50]}{'...' if len(sample_predictions[0]) > 50 else ''}'")
+        print(f"Expected: '{sample_ground_truths[0][:50]}{'...' if len(sample_ground_truths[0]) > 50 else ''}'")
     
     return results
 
-def compare_models(checkpoint_paths, eval_csv=None, eval_video_dir=None):
+def compare_models(checkpoint_paths, eval_csv=None, eval_video_dir=None, max_samples=25):
     """
     Compare multiple model checkpoints.
     
@@ -196,6 +212,7 @@ def compare_models(checkpoint_paths, eval_csv=None, eval_video_dir=None):
         checkpoint_paths: List of checkpoint paths
         eval_csv: Evaluation CSV file
         eval_video_dir: Evaluation video directory
+        max_samples: Maximum samples for quick comparison
     
     Returns:
         dict: Comparison results
@@ -210,7 +227,7 @@ def compare_models(checkpoint_paths, eval_csv=None, eval_video_dir=None):
                 checkpoint_path=checkpoint_path,
                 eval_csv=eval_csv,
                 eval_video_dir=eval_video_dir,
-                max_eval_samples=50  # Quick comparison
+                max_eval_samples=max_samples
             )
             results[f"model_{i+1}"] = model_results["evaluation_summary"]
             results[f"model_{i+1}"]["checkpoint"] = checkpoint_path
@@ -225,10 +242,77 @@ def compare_models(checkpoint_paths, eval_csv=None, eval_video_dir=None):
         if "error" not in model_results:
             print(f"{model_name}:")
             print(f"  Total samples: {model_results.get('total_samples', 'N/A')}")
-            print(f"  Empty predictions: {model_results.get('empty_predictions', 'N/A')}")
-            print(f"  Error predictions: {model_results.get('error_predictions', 'N/A')}")
+            print(f"  Valid predictions: {model_results.get('valid_predictions', 'N/A')}")
+            print(f"  Success rate: {model_results.get('success_rate', 'N/A'):.2%}")
             print(f"  Avg pred length: {model_results.get('avg_pred_length', 'N/A'):.1f}")
         else:
             print(f"{model_name}: ERROR - {model_results['error']}")
     
     return results
+
+def evaluate_single_video(model, processor, video_path, question, ground_truth=None):
+    """
+    Evaluate a single video-question pair.
+    
+    Args:
+        model: Model for inference
+        processor: Processor
+        video_path: Path to video file
+        question: Question to ask
+        ground_truth: Expected answer (optional)
+    
+    Returns:
+        dict: Evaluation result
+    """
+    from scripts.inference import memory_safe_inference
+    
+    device = next(model.parameters()).device
+    tokenizer = getattr(processor, 'tokenizer', processor)
+    
+    print(f"Evaluating single video: {video_path}")
+    print(f"Question: {question}")
+    
+    try:
+        # Run inference
+        prediction = memory_safe_inference(
+            model=model,
+            processor=processor,
+            video_path=video_path,
+            question=question,
+            device=device,
+            tokenizer=tokenizer
+        )
+        
+        result = {
+            "video_path": video_path,
+            "question": question,
+            "prediction": prediction,
+            "ground_truth": ground_truth,
+            "success": not prediction.startswith("Error:")
+        }
+        
+        if ground_truth:
+            # Simple word overlap calculation
+            pred_words = set(prediction.lower().split())
+            gt_words = set(ground_truth.lower().split())
+            if pred_words and gt_words:
+                overlap = len(pred_words & gt_words) / len(pred_words | gt_words)
+                result["word_overlap"] = overlap
+        
+        print(f"Prediction: {prediction}")
+        if ground_truth:
+            print(f"Ground Truth: {ground_truth}")
+            if "word_overlap" in result:
+                print(f"Word Overlap: {result['word_overlap']:.2%}")
+        
+        return result
+        
+    except Exception as e:
+        print(f"Single video evaluation failed: {e}")
+        return {
+            "video_path": video_path,
+            "question": question,
+            "prediction": f"Error: {e}",
+            "ground_truth": ground_truth,
+            "success": False
+        }
