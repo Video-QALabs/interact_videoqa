@@ -19,3 +19,4 @@ open_clip_torch>=2.20.0
 moviepy>=1.0.3
 sentencepiece
 qwen-vl-utils[decord]==0.0.8
+
