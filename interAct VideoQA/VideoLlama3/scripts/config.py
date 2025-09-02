@@ -49,7 +49,9 @@ FLASH_ATTENTION_AVAILABLE = check_flash_attention_compatibility()
 # Model configuration for VideoLLaMA3
 MODEL_CONFIG = {
     "model_id": "DAMO-NLP-SG/VideoLLaMA3-7B",
+
     "cache_dir": "",
+
     "num_frames": 8,
     "max_new_tokens": 128,
     "temperature": 0.7,

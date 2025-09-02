@@ -4,17 +4,18 @@ from scripts.inference import run_inference
 from scripts.evaluate import evaluate_on_dataset
 from scripts.config import DATA_PATHS
 
+
 def main():
     parser = argparse.ArgumentParser(description="VideoLLaMA3 pipeline")
     sub = parser.add_subparsers(dest="cmd", required=True)
 
-    # Training
+
     p_train = sub.add_parser("train", help="Train the model")
     p_train.add_argument("--train_csv", type=str, default=DATA_PATHS["train_csv"])
     p_train.add_argument("--video_dir", type=str, default=DATA_PATHS["train_video_dir"])
     p_train.add_argument("--output_dir", type=str, default="./outputs")
 
-    # Inference
+
     p_infer = sub.add_parser("infer", help="Run inference on one video")
     p_infer.add_argument("--video", type=str, required=True)
     p_infer.add_argument("--prompt", type=str, required=True)
@@ -42,6 +43,7 @@ def main():
             output_file=args.out,
         )
         print(f"Evaluation complete. Results saved to {args.out}")
+
 
 if __name__ == "__main__":
     main()
