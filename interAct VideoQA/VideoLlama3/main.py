@@ -1,48 +1,46 @@
 import argparse
-from scripts.train import train_videollama3
+import torch
+import os
+from pathlib import Path
+from scripts.dataset import build_json
 from scripts.inference import run_inference
-from scripts.evaluate import evaluate_on_dataset
-from scripts.config import DATA_PATHS
-
 
 def main():
-    parser = argparse.ArgumentParser(description="VideoLLaMA3 pipeline")
-    sub = parser.add_subparsers(dest="cmd", required=True)
+    parser = argparse.ArgumentParser(description="VideoLLaMA3 Dataset Builder / Inference / Training")
+    parser.add_argument("--create_dataset", action="store_true", help="Run dataset building")
+    parser.add_argument("--inference", action="store_true", help="Run inference")
+    parser.add_argument("--train", action="store_true", help="Run training pipeline")
 
-
-    p_train = sub.add_parser("train", help="Train the model")
-    p_train.add_argument("--train_csv", type=str, default=DATA_PATHS["train_csv"])
-    p_train.add_argument("--video_dir", type=str, default=DATA_PATHS["train_video_dir"])
-    p_train.add_argument("--output_dir", type=str, default="./outputs")
-
-
-    p_infer = sub.add_parser("infer", help="Run inference on one video")
-    p_infer.add_argument("--video", type=str, required=True)
-    p_infer.add_argument("--prompt", type=str, required=True)
-
-    # Evaluation
-    p_eval = sub.add_parser("eval", help="Evaluate on a CSV file")
-    p_eval.add_argument("--csv", type=str, default=DATA_PATHS["eval_csv"])
-    p_eval.add_argument("--video_root", type=str, default=DATA_PATHS["eval_video_dir"])
-    p_eval.add_argument("--out", type=str, default="eval_outputs.json")
+    # dataset args
+    parser.add_argument("--annotations_csv", type=str, default="/data/annotations.csv")
+    parser.add_argument("--source_video_dir", type=str, default="/data/train/1.43pm/video/")
+    parser.add_argument("--out_dataset", type=str, default="/data/")
 
     args = parser.parse_args()
 
-    if args.cmd == "train":
-        train_videollama3(
-            train_csv=args.train_csv,
-            video_dir=args.video_dir,
-            output_dir=args.output_dir,
+    print("Torch:", torch.__version__)
+    print("CUDA runtime:", torch.version.cuda)
+    print("CUDA available:", torch.cuda.is_available())
+    if not torch.cuda.is_available():
+        os.environ["DISABLE_FLASH_ATTN"] = "1"
+    print("GPU:", torch.cuda.get_device_name(0) if torch.cuda.is_available() else "No GPU")
+
+    if args.create_dataset:
+        print("[INFO] Creating dataset...")
+        build_json(
+            annotations_csv=args.annotations_csv,
+            source_video_dir=args.source_video_dir,
+            out_root=args.out_dataset,
+            use_absolute_paths=True,
+            separate_conversations=True
         )
-    elif args.cmd == "infer":
-        print(run_inference(args.video, args.prompt))
-    elif args.cmd == "eval":
-        results = evaluate_on_dataset(
-            eval_csv=args.csv,
-            eval_video_dir=args.video_root,
-            output_file=args.out,
-        )
-        print(f"Evaluation complete. Results saved to {args.out}")
+
+    elif args.inference:
+        print("[INFO] Running inference...")
+        run_inference()
+
+    else:
+        print("[ERROR] You must specify one of: --create_dataset, --inference, or --train")
 
 
 if __name__ == "__main__":

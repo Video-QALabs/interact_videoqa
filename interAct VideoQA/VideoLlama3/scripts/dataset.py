@@ -1,264 +1,143 @@
 import os
-import pandas as pd
-import torch
-from torch.utils.data import Dataset
-from scripts.config import config_dict
 import json
+import shutil
+import pandas as pd
+from pathlib import Path
 
-class VideoLLaMA3Dataset(Dataset):
-    """Dataset class for VideoLLaMA3 training."""
+def build_json(
+    annotations_csv: str,
+    source_video_dir: str,
+    out_root: str,
+    status_filter=('accepted',),
+    copy_missing_only: bool = True,
+    use_absolute_paths: bool = True,
+    separate_conversations: bool = True
+):
+    """
+    Build JSONL dataset with flexible formatting options:
+      - out_root/videos/ : copied videos (all .mp4 from source_video_dir)
+      - out_root/custom.jsonl : training JSONL
     
-    def __init__(self, csv_file: str, video_dir: str, processor, 
-                 num_frames: int = 8, extension: str = ".mp4"):
-        """
-        Initialize VideoLLaMA3 dataset.
-        
-        Args:
-            csv_file: Path to CSV file with video paths, questions, and answers
-            video_dir: Directory containing video files
-            processor: VideoLLaMA3 processor
-            num_frames: Number of frames to sample from each video
-            extension: Video file extension
-        """
-        self.df = pd.read_csv(csv_file, dtype={
-            "Video_File_Path": str, 
-            "Questions": str, 
-            "Answers": str
-        })
-        self.video_dir = video_dir
-        self.processor = processor
-        self.num_frames = num_frames
-        self.extension = extension
-        
-        print(f"Loaded dataset with {len(self.df)} samples")
+    Args:
+        annotations_csv: Path to CSV with video annotations
+        source_video_dir: Directory containing source video files
+        out_root: Output root directory
+        status_filter: Tuple of accepted status values
+        copy_missing_only: Only copy videos that don't exist in destination
+        use_absolute_paths: Use absolute paths in JSONL (True) or relative "videos/" paths (False)
+        separate_conversations: Create separate JSON object for each Q&A pair (True) or group by video (False)
+    """
 
-    def __len__(self):
-        return len(self.df)
+    out_root = Path(out_root)
+    videos_dir = out_root / "videos"
+    videos_dir.mkdir(parents=True, exist_ok=True)
 
-    def create_conversation(self, video_path: str, question: str, answer: str):
-        """Create conversation format for VideoLLaMA3."""
-        conversation = [
-            {"role": "system", "content": "You are a helpful assistant."},
-            {
-                "role": "user",
-                "content": [
-                    {
-                        "type": "video", 
-                        "video": {
-                            "video_path": video_path, 
-                            "fps": 1, 
-                            "max_frames": self.num_frames
-                        }
-                    },
-                    {"type": "text", "text": question}
-                ]
-            },
-            {
-                "role": "assistant",
-                "content": [
-                    {"type": "text", "text": answer}
-                ]
-            }
-        ]
-        return conversation
+    df = pd.read_csv(annotations_csv)
 
-    def __getitem__(self, idx: int):
-        """Get item from dataset."""
-        try:
-            row = self.df.iloc[idx]
-            video_file = row["Video_File_Path"].strip()
-            question = row["Questions"].strip()
-            answer = row["Answers"].strip()
-            
-            # Construct full video path
-            video_path = os.path.join(self.video_dir, video_file)
-            if not os.path.splitext(video_path)[1]:
-                video_path += self.extension
-            
-            # Verify video exists
-            if not os.path.exists(video_path):
-                raise FileNotFoundError(f"Video not found: {video_path}")
-            
-            # Create conversation
-            conversation = self.create_conversation(video_path, question, answer)
-            
-            # Process with VideoLLaMA3 processor
-            inputs = self.processor(
-                conversation=conversation,
-                add_system_prompt=True,
-                add_generation_prompt=True,
-                return_tensors="pt"
-            )
-            
-            # Prepare inputs for training
-            processed_inputs = {
-                k: v.squeeze(0) if isinstance(v, torch.Tensor) and v.dim() > 1 else v
-                for k, v in inputs.items()
-            }
-            
-            # Convert pixel values to bfloat16 if present
-            if "pixel_values" in processed_inputs and isinstance(processed_inputs["pixel_values"], torch.Tensor):
-                processed_inputs["pixel_values"] = processed_inputs["pixel_values"].to(torch.bfloat16)
-            
-            # Create labels for training (copy of input_ids)
-            if "input_ids" in processed_inputs:
-                processed_inputs["labels"] = processed_inputs["input_ids"].clone()
-            
-            return processed_inputs
-            
-        except Exception as e:
-            print(f"Error processing item {idx}: {e}")
-            # Return a dummy item to avoid training interruption
-            return self._get_dummy_item()
-    
-    def _get_dummy_item(self):
-        """Create dummy item for error cases."""
-        return {
-            "input_ids": torch.tensor([1, 2, 3]),  # dummy tokens
-            "attention_mask": torch.tensor([1, 1, 1]),
-            "labels": torch.tensor([1, 2, 3]),
-        }
+    needed_cols = {'video_file_path', 'question', 'answer'}
+    missing = needed_cols - set(df.columns)
+    if missing:
+        raise ValueError(f"CSV missing required columns: {missing}")
 
-class VideoLLaMA3JSONLDataset(Dataset):
-    """Dataset class for VideoLLaMA3 using JSONL format (recommended)."""
-    
-    def __init__(self, jsonl_file: str, data_root: str, processor):
-        """
-        Initialize dataset with JSONL format.
-        
-        Args:
-            jsonl_file: Path to JSONL annotation file
-            data_root: Root directory for data
-            processor: VideoLLaMA3 processor
-        """
-        self.data_root = data_root
-        self.processor = processor
-        
-        # Load JSONL data
-        self.data = []
-        with open(jsonl_file, 'r', encoding='utf-8') as f:
-            for line in f:
-                self.data.append(json.loads(line.strip()))
-        
-        print(f"Loaded JSONL dataset with {len(self.data)} samples")
-    
-    def __len__(self):
-        return len(self.data)
-    
-    def __getitem__(self, idx: int):
-        """Get item from JSONL dataset."""
-        try:
-            item = self.data[idx]
+    # Filter by status
+    if 'status' in df.columns and status_filter:
+        df = df[df['status'].astype(str).str.lower().isin([s.lower() for s in status_filter])]
+
+    # Clean strings
+    for col in ['video_file_path', 'question', 'answer']:
+        df[col] = df[col].astype(str).str.strip()
+
+    # Remove rows with empty questions or answers
+    df = df[(df['question'] != '') & (df['answer'] != '') & 
+            (df['question'] != 'nan') & (df['answer'] != 'nan')]
+
+    items = []
+    copied_videos = set()
+
+    if separate_conversations:
+        # Create separate JSON object for each Q&A pair
+        item_id = 0
+        for _, row in df.iterrows():
+            video_rel = row['video_file_path']
+            src = Path(source_video_dir) / Path(video_rel).name
             
-            # Handle video or image data
-            if "video" in item:
-                media_paths = [os.path.join(self.data_root, path) for path in item["video"]]
-                media_type = "video"
-            elif "image" in item:
-                media_paths = [os.path.join(self.data_root, path) for path in item["image"]]
-                media_type = "image"
+            if not src.exists():
+                print(f"[WARN] Missing video {video_rel}, skipping...")
+                continue
+
+            dst = videos_dir / src.name
+            if dst.name not in copied_videos:
+                if not dst.exists() or not copy_missing_only:
+                    shutil.copy2(src, dst)
+                    print(f"[INFO] Copied {src.name}")
+                copied_videos.add(dst.name)
+
+            # Determine video path format
+            if use_absolute_paths:
+                video_path = [str(dst.absolute())]
             else:
-                raise ValueError("No video or image found in data item")
-            
-            # Convert conversations to VideoLLaMA3 format
-            conversation = []
-            for conv in item["conversations"]:
-                role = "user" if conv["from"] == "human" else "assistant"
-                content = conv["value"]
-                
-                if role == "user" and media_type in content:
-                    # Parse content with media
-                    if media_type == "video":
-                        conversation.append({
-                            "role": role,
-                            "content": [
-                                {"type": "video", "video": {"video_path": media_paths[0], "fps": 1, "max_frames": 8}},
-                                {"type": "text", "text": content.replace("<video>", "").strip()}
-                            ]
-                        })
-                    else:  # image
-                        conversation.append({
-                            "role": role,
-                            "content": [
-                                {"type": "image"},
-                                {"type": "text", "text": content.replace("<image>", "").strip()}
-                            ]
-                        })
-                else:
-                    conversation.append({
-                        "role": role,
-                        "content": [{"type": "text", "text": content}]
-                    })
-            
-            # Process with VideoLLaMA3 processor
-            inputs = self.processor(
-                conversation=conversation,
-                add_system_prompt=True,
-                add_generation_prompt=True,
-                return_tensors="pt"
-            )
-            
-            # Prepare inputs
-            processed_inputs = {
-                k: v.squeeze(0) if isinstance(v, torch.Tensor) and v.dim() > 1 else v
-                for k, v in inputs.items()
-            }
-            
-            if "pixel_values" in processed_inputs and isinstance(processed_inputs["pixel_values"], torch.Tensor):
-                processed_inputs["pixel_values"] = processed_inputs["pixel_values"].to(torch.bfloat16)
-            
-            if "input_ids" in processed_inputs:
-                processed_inputs["labels"] = processed_inputs["input_ids"].clone()
-            
-            return processed_inputs
-            
-        except Exception as e:
-            print(f"Error processing JSONL item {idx}: {e}")
-            return self._get_dummy_item()
-    
-    def _get_dummy_item(self):
-        """Create dummy item for error cases."""
-        return {
-            "input_ids": torch.tensor([1, 2, 3]),
-            "attention_mask": torch.tensor([1, 1, 1]),
-            "labels": torch.tensor([1, 2, 3]),
-        }
+                video_path = f"videos/{dst.name}"
 
-def videollama3_collate_fn(examples):
-    """Collate function for VideoLLaMA3 dataset."""
-    from torch.nn.utils.rnn import pad_sequence
-    
-    # Filter out None examples
-    examples = [ex for ex in examples if ex is not None]
-    
-    if not examples:
-        return {}
-    
-    batch = {}
-    
-    # Handle text inputs
-    for key in ["input_ids", "attention_mask"]:
-        if key in examples[0]:
-            pad_value = 0 if key == "input_ids" else 0
-            batch[key] = pad_sequence(
-                [ex[key] for ex in examples if key in ex],
-                batch_first=True,
-                padding_value=pad_value
-            )
-    
-    # Handle labels
-    if "labels" in examples[0]:
-        batch["labels"] = pad_sequence(
-            [ex["labels"] for ex in examples if "labels" in ex],
-            batch_first=True,
-            padding_value=-100
-        )
-    
-    # Handle visual inputs
-    if "pixel_values" in examples[0]:
-        pixel_values = [ex["pixel_values"] for ex in examples if "pixel_values" in ex]
-        if pixel_values:
-            # Stack pixel values
-            batch["pixel_values"] = torch.stack(pixel_values, dim=0)
-    
-    return batch
+            # Create individual conversation item
+            item = {
+                "id": f"{item_id:x}",  # Use hex format like "0a", "0b", etc.
+                "video": video_path,
+                "conversations": [
+                    {"from": "human", "value": f"<video>\n {row['question']}"},
+                    {"from": "gpt", "value": row['answer']}
+                ]
+            }
+            items.append(item)
+            item_id += 1
+
+    else:
+        # Group conversations by video (original behavior)
+        grouped = df.groupby('video_file_path', sort=False)
+        next_id = 0
+        
+        for video_rel, gdf in grouped:
+            src = Path(source_video_dir) / Path(video_rel).name
+            if not src.exists():
+                print(f"[WARN] Missing video {video_rel}, skipping JSON entry...")
+                continue
+
+            dst = videos_dir / src.name
+            if not dst.exists() or not copy_missing_only:
+                shutil.copy2(src, dst)
+
+            conversations = []
+            for _, row in gdf.iterrows():
+                q, a = row['question'], row['answer']
+                if not q or not a:
+                    continue
+                conversations.append({"from": "human", "value": "<video>\n " + q})
+                conversations.append({"from": "gpt", "value": a})
+
+            if conversations:
+                if use_absolute_paths:
+                    video_path = [str(dst.absolute())]
+                else:
+                    video_path = f"videos/{dst.name}"
+                    
+                items.append({
+                    "id": next_id,
+                    "video": video_path,
+                    "conversations": conversations
+                })
+                next_id += 1
+
+    # Copy any extra .mp4s not in CSV
+    for mp4 in Path(source_video_dir).glob("*.mp4"):
+        dst = videos_dir / mp4.name
+        if not dst.exists() or not copy_missing_only:
+            shutil.copy2(mp4, dst)
+
+    # Write JSONL file
+    out_jsonl = out_root / "custom.jsonl"
+    with open(out_jsonl, "w", encoding="utf-8") as f:
+        for item in items:
+            f.write(json.dumps(item, ensure_ascii=False) + "\n")
+
+    print(f"[DONE] Wrote {out_jsonl} with {len(items)} items.")
+    print(f"[INFO] Total {len(list(videos_dir.glob('*.mp4')))} mp4 files in {videos_dir}")
+
