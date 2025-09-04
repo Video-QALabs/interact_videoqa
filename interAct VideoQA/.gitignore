@@ -7,3 +7,6 @@ data/
 saved_models/
 data/
 *.pyc
+VideoLLaMA3/
+__pycache__/
+output/
