@@ -11,7 +11,7 @@
 <div>
 <a href="https://arxiv.org/abs/2507.14743"> Paper</a> |
 <a href="https://interact-videoqa.github.io/InterActVideoQA/index.html">Website</a> |
-<a href="https://huggingface.co/datasets/joeWabbit/InterAct_Video_Reasoning_Rich_Video_QA_for_Urban_Traffic/blob/main/README.md">Data</a> |
+<a href="https://huggingface.co/datasets/joeWabbit/InterAct_Video_Reasoning_Rich_Video_QA_for_Urban_Traffic">Data</a> |
 <a href="https://interact-videoqa.github.io/InterActVideoQA/docs/InterAct_VideoQADatasetDescription.pdf" target="_blank">Doc </a> |
 </div>
 <hr>
@@ -87,6 +87,7 @@ The main implementations for these models for InterAct VideoQA can be found here
       url={https://arxiv.org/abs/2507.14743}, 
 }
 ```
+
 
 
 
