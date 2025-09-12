@@ -4,6 +4,7 @@
 - [3 March 2025] Training Code and Sample Dataset Released
 - [28 February 2025] Website is Live.
 - [16 February 2025] Paper on archive.
+- [12 September 2025] Complete Dataset available on hugging face
 
 # _InterAct VideoQA_: A Benchmark Dataset for Video Question Answering in Traffic Intersection Monitoring
 
@@ -28,7 +29,7 @@
 
 # Dataset Download
 
-Dataset can be downloaded <a href="https://huggingface.co/datasets/joeWabbit/InterAct_Video_Reasoning_Rich_Video_QA_for_Urban_Traffic/blob/main/README.md">here</a>
+Dataset can be downloaded <a href="https://huggingface.co/datasets/joeWabbit/InterAct_Video_Reasoning_Rich_Video_QA_for_Urban_Traffic">here</a>
 
 # Dataset Overview
 
@@ -40,7 +41,7 @@ InterAct VideoQA dataset comprises 28,800 question-answer pairs across various r
 
 ```
 data
-├── videoannotations.csv
+├── annotations.csv
 └── Videos
     ├── clip_videos_0.mp4
     ├── clip_videos_1.mp4
@@ -76,7 +77,16 @@ The main implementations for these models for InterAct VideoQA can be found here
 # Citation
 
 ```
-
+@misc{vishal2025interactvideoreasoningrichvideoqa,
+      title={InterAct-Video: Reasoning-Rich Video QA for Urban Traffic}, 
+      author={Joseph Raj Vishal and Divesh Basina and Rutuja Patil and Manas Srinivas Gowda and Katha Naik and Yezhou Yang and Bharatesh Chakravarthi},
+      year={2025},
+      eprint={2507.14743},
+      archivePrefix={arXiv},
+      primaryClass={cs.CV},
+      url={https://arxiv.org/abs/2507.14743}, 
+}
 ```
+
 
 
