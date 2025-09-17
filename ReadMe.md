@@ -5,6 +5,7 @@
 - [28 February 2025] Website is Live.
 - [16 February 2025] Paper on archive.
 - [12 September 2025] Complete Dataset available on hugging face
+- Model checkpoint will be released soon.
 
 # _InterAct VideoQA_: A Benchmark Dataset for Video Question Answering in Traffic Intersection Monitoring
 
@@ -87,6 +88,7 @@ The main implementations for these models for InterAct VideoQA can be found here
       url={https://arxiv.org/abs/2507.14743}, 
 }
 ```
+
 
 
 
