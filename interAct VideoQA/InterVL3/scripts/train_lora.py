@@ -198,7 +198,7 @@ class InterVL3Trainer:
             logging_steps=self.args.logging_steps,
             save_steps=self.args.save_steps,
             save_total_limit=self.args.save_total_limit,
-            evaluation_strategy="no",
+            eval_strategy="no",
             bf16=self.args.bf16,
             gradient_checkpointing=self.args.grad_checkpoint,
             dataloader_num_workers=self.args.dataloader_num_workers,
@@ -280,7 +280,7 @@ def parse_args():
                        help="Learning rate scheduler type")
     parser.add_argument("--max_seq_length", type=int, default=4096,
                        help="Maximum sequence length")
-    parser.add_argument("--evaluation_strategy", type=str, default="no",
+    parser.add_argument("--eval_strategy", type=str, default="no",
                        help="Evaluation strategy")
     parser.add_argument("--save_strategy", type=str, default="steps",
                        help="Save strategy")
