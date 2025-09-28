@@ -10,7 +10,7 @@ import sys
 import subprocess
 
 # Add the script's directory to the Python path to allow for relative imports
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 # Import functions with error handling
 def train_with_lora(args):
@@ -47,11 +47,14 @@ def train_with_lora(args):
 
 try:
     from scripts.prepare_data import prepare_data
-except ImportError:
-    # If prepare_data doesn't exist, create a placeholder
-    def prepare_data():
-        print("📊 Data preparation functionality not implemented yet.")
-        print("Please manually prepare your data or check scripts/prepare_data.py")
+except ImportError as e:
+    print("❌ Failed to import 'prepare_data' from 'scripts.prepare_data'.")
+    print(f"Original Error: {e}")
+    # Define a placeholder that matches the expected signature to avoid TypeErrors
+    def prepare_data(root_dir, output_file):
+        print("Please manually prepare your data or fix the import error in scripts/prepare_data.py")
+    # Re-raising is better for debugging
+    raise
 
 def run_inference_wrapper(args):
     """Wrapper to call the batch inference script"""
@@ -106,6 +109,11 @@ def main():
     inference_group.add_argument("--annotations_path", type=str, help="Path to the JSONL file with questions for inference.")
     inference_group.add_argument("--videos_dir", type=str, help="Directory containing video files for inference.")
 
+    # Data preparation arguments
+    data_prep_group = parser.add_argument_group('Data Preparation Arguments')
+    data_prep_group.add_argument("--root_dir", type=str, default="data", help="Root directory containing the raw dataset to prepare.")
+    data_prep_group.add_argument("--output_file", type=str, default="training_data/meta_config.json", help="Path for the output JSONL file.")
+
     args = parser.parse_args()
     
     print("==================================================")
@@ -119,7 +127,7 @@ def main():
             
     elif args.prepare_data:
         print("📊 Data Preparation Mode")
-        prepare_data()
+        prepare_data(root_dir=args.root_dir, output_file=args.output_file)
         
     elif args.inference:
         print("💬 Inference Mode")

@@ -21,6 +21,11 @@ def run_batch_inference(args):
     
     print("🚀 Starting Batch Inference with Fine-Tuned InterVL3 Model")
     
+    # Ensure output directory exists
+    output_dir = Path(args.output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    output_file_path = output_dir / "inference_results.json"
+    
     # Load tokenizer and model
     print(f"Loading model from: {args.model_path}")
     tokenizer = AutoTokenizer.from_pretrained(args.model_path, trust_remote_code=True)
@@ -41,6 +46,7 @@ def run_batch_inference(args):
     with open(args.annotations_path, 'r', encoding='utf-8') as f:
         annotations = [json.loads(line) for line in f if line.strip()]
 
+    results = []
     # Process each item in the annotation file
     for item in annotations:
         if "custom_video_qa" in item:
@@ -52,12 +58,14 @@ def run_batch_inference(args):
         if not video_filename or not conversations:
             continue
 
-        # Extract question
+        # Extract question and ground_truth answer
         question = ""
+        ground_truth = ""
         for conv in conversations:
             if conv.get('from') == 'human':
                 question = conv.get('value', '').replace('<video>', '').strip()
-                break
+            elif conv.get('from') == 'gpt':
+                ground_truth = conv.get('value', '')
         
         if not question:
             continue
@@ -70,6 +78,7 @@ def run_batch_inference(args):
         print("-" * 80)
         print(f"Processing video: {video_filename}")
         print(f"Question: {question}")
+        print(f"Ground Truth: {ground_truth}")
 
         try:
             # Load and process video
@@ -96,16 +105,33 @@ def run_batch_inference(args):
                     return_history=True
                 )
             
-            print(f"Model Response: {response}")
+            print(f"Model Response (Predicted): {response}")
+
+            # Store result with the new keys
+            results.append({
+                "folder_name": os.path.dirname(video_filename),
+                "file_name": os.path.basename(video_filename),
+                "question": question,
+                "ground_truth": ground_truth,
+                "predicted": response
+            })
 
         except Exception as e:
             print(f"❌ Error processing {video_filename}: {e}")
+
+    # Save all results to a single JSON file
+    print(f"\n💾 Saving {len(results)} results to {output_file_path}")
+    with open(output_file_path, 'w', encoding='utf-8') as f:
+        json.dump(results, f, indent=4)
+    
+    print("✅ Batch inference complete!")
 
 def main():
     parser = argparse.ArgumentParser(description="Batch inference with fine-tuned InternVL3 model.")
     parser.add_argument("--model_path", type=str, default="work_dirs/internvl3_38b_video_qa_lora", help="Path to the fine-tuned model directory.")
     parser.add_argument("--annotations_path", type=str, required=True, help="Path to the JSONL file with questions.")
     parser.add_argument("--videos_dir", type=str, required=True, help="Directory containing the video files.")
+    parser.add_argument("--output_dir", type=str, default="inference_results", help="Directory to save the inference results JSON file.")
     
     args = parser.parse_args()
     run_batch_inference(args)

@@ -1,126 +1,88 @@
-import json
-import csv
 import os
+import pandas as pd
+import json
 from pathlib import Path
+import argparse
 
-def convert_csv_to_jsonl(csv_path, video_dir, output_path):
+def prepare_data(root_dir='data', output_file='training_data/meta_config.json'):
     """
-    Convert CSV annotation file to JSONL format for InterVL3 training
-    
-    Args:
-        csv_path: Path to the CSV annotation file
-        video_dir: Directory containing video files
-        output_path: Output JSONL file path
+    Prepares video QA data from multiple subdirectories containing annotations.csv
+    and converts it into a single JSONL file for training.
     """
+    print(f"🔍 Starting data preparation from root directory: {root_dir}")
     
-    jsonl_data = []
+    all_annotations = []
     
-    with open(csv_path, 'r', encoding='utf-8') as csvfile:
-        reader = csv.DictReader(csvfile)
-        
-        for row in reader:
-            video_file = row['Video File Path']
-            question = row['Question']
-            answer = row['Answer']
-            category = row['Category']
+    # Ensure the output directory exists
+    output_path = Path(output_file)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    
+    # Walk through all subdirectories to find annotations.csv
+    for dirpath, _, filenames in os.walk(root_dir):
+        if 'annotations.csv' in filenames:
+            annotations_file = os.path.join(dirpath, 'annotations.csv')
+            print(f"Processing annotations from: {annotations_file}")
             
-            # Create full video path
-            video_path = os.path.join(video_dir, video_file)
-            
-            # Check if video file exists
-            if not os.path.exists(video_path):
-                print(f"Warning: Video file not found: {video_path}")
-                continue
-            
-            # Create conversation format expected by InterVL3
-            conversation = [
-                {
-                    "from": "human",
-                    "value": f"<video>\n{question}"
-                },
-                {
-                    "from": "gpt", 
-                    "value": answer
-                }
-            ]
-            
-            # Create JSONL entry
-            jsonl_entry = {
-                "id": f"video_{row['Index']}",
-                "video": video_file,
-                "conversations": conversation,
-                "category": category
+            try:
+                df = pd.read_csv(annotations_file)
+                
+                # Process each row in the CSV
+                for _, row in df.iterrows():
+                    video_file = row.get('video_filename') or row.get('filename') or row.get('video_file_path')
+                    question = row.get('question')
+                    answer = row.get('answer')
+
+                    if not all([video_file, question, answer]):
+                        print(f"⚠️ Warning: Skipping row with missing data in {annotations_file}: {row}")
+                        continue
+
+                    # Skip files that don't have the correct extension
+                    if not isinstance(video_file, str) or not video_file.endswith('.mp4'):
+                        print(f"⚠️ Warning: Skipping malformed video filename: {video_file}")
+                        continue
+                    
+                    # Get the relative path of the video from the root_dir
+                    # This assumes the video is in the same directory as the annotations.csv
+                    relative_video_path = os.path.relpath(os.path.join(dirpath, video_file), root_dir)
+
+                    # Create the JSONL structure
+                    json_record = {
+                        "id": f"{Path(dirpath).name}_{video_file.replace('.mp4', '')}",
+                        "video": relative_video_path.replace('\\', '/'),  # Use forward slashes for consistency
+                        "conversations": [
+                            {"from": "human", "value": f"<video>\n{question}"},
+                            {"from": "gpt", "value": answer}
+                        ]
+                    }
+                    all_annotations.append(json_record)
+                    
+            except Exception as e:
+                print(f"❌ Error processing {annotations_file}: {e}")
+
+    # Write all annotations to the output file
+    if all_annotations:
+        print(f"Writing {len(all_annotations)} records to {output_file}")
+        with open(output_file, 'w', encoding='utf-8') as f:
+            # First, write the metadata line that the training script expects
+            meta_data = {
+                "custom_video_qa": True,
+                "root": root_dir,
+                "annotation": output_file
             }
-            
-            jsonl_data.append(jsonl_entry)
-    
-    # Write JSONL file
-    with open(output_path, 'w', encoding='utf-8') as jsonlfile:
-        for entry in jsonl_data:
-            jsonlfile.write(json.dumps(entry, ensure_ascii=False) + '\n')
-    
-    print(f"Created JSONL file with {len(jsonl_data)} entries: {output_path}")
-    return len(jsonl_data)
+            f.write(json.dumps(meta_data) + '\n')
 
-def create_meta_json(jsonl_path, video_dir, output_path, dataset_name="custom_video_qa"):
-    """
-    Create meta JSON file for InterVL3 training configuration
-    
-    Args:
-        jsonl_path: Path to the JSONL annotation file
-        video_dir: Directory containing video files  
-        output_path: Output meta JSON file path
-        dataset_name: Name for the dataset
-    """
-    
-    # Count entries in JSONL
-    with open(jsonl_path, 'r', encoding='utf-8') as f:
-        length = sum(1 for _ in f)
-    
-    # Ensure all paths are strings for JSON serialization
-    meta_config = {
-        dataset_name: {
-            "root": str(video_dir),
-            "annotation": str(jsonl_path),
-            "data_augment": False,
-            "max_dynamic_patch": 6,  # Reduced for video processing
-            "repeat_time": 1,
-            "length": length
-        }
-    }
-    
-    with open(output_path, 'w', encoding='utf-8') as f:
-        json.dump(meta_config, f, indent=2, ensure_ascii=False)
-    
-    print(f"Created meta JSON file: {output_path}")
-    return meta_config
+            # Then write all the annotation records
+            for record in all_annotations:
+                f.write(json.dumps(record) + '\n')
+        print("✅ Data preparation complete!")
+    else:
+        print("🤷 No annotations found. The output file was not created.")
 
-def prepare_training_data():
-    """Prepare data for training - called from main.py"""
+if __name__ == '__main__':
+    # This allows the script to be run directly
+    parser = argparse.ArgumentParser(description="Prepare video QA data.")
+    parser.add_argument('--root_dir', default='data', help='Root directory of the dataset')
+    parser.add_argument('--output_file', default='training_data/meta_config.json', help='Output JSONL file for training config')
+    args = parser.parse_args()
     
-    # Define paths
-    base_dir = Path(__file__).parent.parent
-    csv_path = base_dir / "data" / "Video_Annotations_raw - 1.33pm_10.1mins_clip_60.csv"
-    video_dir = str(base_dir / "data")
-    
-    # Output paths
-    output_dir = base_dir / "training_data"
-    output_dir.mkdir(exist_ok=True)
-    
-    jsonl_path = str(output_dir / "video_qa_annotations.jsonl")
-    meta_path = str(output_dir / "meta_config.json")
-    
-    # Convert CSV to JSONL (convert paths to strings)
-    print("Converting CSV to JSONL format...")
-    num_entries = convert_csv_to_jsonl(str(csv_path), video_dir, jsonl_path)
-    
-    # Create meta configuration
-    print("Creating meta configuration...")
-    meta_config = create_meta_json(jsonl_path, video_dir, meta_path)
-    
-    print(f"\nData preparation complete!")
-    print(f"JSONL file: {jsonl_path}")
-    print(f"Meta config: {meta_path}")
-    print(f"Total samples: {num_entries}")
-    
-    return jsonl_path, meta_path
+    prepare_data(args.root_dir, args.output_file)
