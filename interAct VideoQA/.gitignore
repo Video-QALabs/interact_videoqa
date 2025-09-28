@@ -10,3 +10,4 @@ data/
 VideoLLaMA3/
 __pycache__/
 output/
+*json

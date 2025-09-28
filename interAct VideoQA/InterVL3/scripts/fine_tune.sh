@@ -131,36 +131,34 @@ $LAUNCHER_CMD python scripts/train_lora.py \
   --max_dynamic_patch 6 \
   --down_sample_ratio 0.5 \
   --drop_path_rate 0.0 \
-  --freeze_llm \
-  --freeze_mlp \
-  --freeze_backbone \
-  --use_lora \
-  --lora_r 16 \
-  --lora_alpha 32 \
-  --lora_dropout 0.1 \
   --vision_select_layer -1 \
-  --dataloader_num_workers 4 \
+  --ps_version 'v2' \
+  --dynamic_image_size \
+  --use_thumbnail \
+  --group_by_length \
+  --do_train \
   --bf16 \
+  --grad_checkpoint \
   --num_train_epochs 1 \
   --per_device_train_batch_size $PER_DEVICE_BATCH_SIZE \
   --gradient_accumulation_steps $GRADIENT_ACC \
-  --eval_strategy "no" \
-  --save_strategy "steps" \
-  --save_steps 200 \
-  --save_total_limit 1 \
   --learning_rate 2e-5 \
   --weight_decay 0.05 \
   --warmup_ratio 0.03 \
   --lr_scheduler_type "cosine" \
-  --logging_steps 1 \
   --max_seq_length 4096 \
-  --do_train \
-  --grad_checkpoint \
-  --group_by_length \
-  --dynamic_image_size \
-  --use_thumbnail \
-  --ps_version 'v2' \
+  --eval_strategy "no" \
+  --save_strategy "steps" \
+  --save_steps 200 \
+  --save_total_limit 1 \
+  --logging_steps 1 \
+  --dataloader_num_workers 4 \
   --report_to "tensorboard" \
+  --run_name "internvl3_38b_video_qa_lora_$(date +%Y%m%d_%H%M%S)" \
+  --freeze_llm \
+  --freeze_backbone \
+  --freeze_mlp \
+  --use_llm_lora 16 \
   2>&1 | tee -a "${OUTPUT_DIR}/training_log.txt"
 
 if [ $? -eq 0 ]; then
