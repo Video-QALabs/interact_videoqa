@@ -47,8 +47,8 @@ def run_batch_inference(args):
         annotations = [json.loads(line) for line in f if line.strip()]
 
     results = []
-    # Process each item in the annotation file
-    for item in annotations:
+    # Process each item in the annotation file, with an index for checkpointing
+    for i, item in enumerate(annotations, 1):
         if "custom_video_qa" in item:
             continue  # Skip metadata line
 
@@ -76,7 +76,7 @@ def run_batch_inference(args):
             continue
 
         print("-" * 80)
-        print(f"Processing video: {video_filename}")
+        print(f"Processing video {i}/{len(annotations)}: {video_filename}")
         print(f"Question: {question}")
         print(f"Ground Truth: {ground_truth}")
 
@@ -86,7 +86,7 @@ def run_batch_inference(args):
             pixel_values = pixel_values.to(torch.bfloat16).cuda()
 
             # Create video prefix for multi-frame input
-            video_prefix = ''.join([f'Frame{i+1}: <image>\n' for i in range(len(num_patches_list))])
+            video_prefix = ''.join([f'Frame{j+1}: <image>\n' for j in range(len(num_patches_list))])
             full_question = video_prefix + question
 
             # Run inference
@@ -116,11 +116,17 @@ def run_batch_inference(args):
                 "predicted": response
             })
 
+            # Checkpoint saving every 100 results
+            if i % 100 == 0:
+                print(f"\n💾 Checkpoint: Saving {len(results)} results to {output_file_path}...")
+                with open(output_file_path, 'w', encoding='utf-8') as f:
+                    json.dump(results, f, indent=4)
+
         except Exception as e:
             print(f"❌ Error processing {video_filename}: {e}")
 
-    # Save all results to a single JSON file
-    print(f"\n💾 Saving {len(results)} results to {output_file_path}")
+    # Save all results to a single JSON file at the end
+    print(f"\n💾 Final Save: Saving {len(results)} results to {output_file_path}")
     with open(output_file_path, 'w', encoding='utf-8') as f:
         json.dump(results, f, indent=4)
     
