@@ -4,6 +4,7 @@
 # and with strict guards to avoid passing [[]] into processor(images=...)
 
 import os
+import sys
 import gc
 from typing import Dict, Any, List, Tuple, Optional
 
@@ -13,12 +14,25 @@ from torch.utils.data import DataLoader
 from torch import amp
 from tqdm import tqdm
 
-from scripts.config import (
-    TRAINING_CONFIG,
-    MEMORY_CONFIG,
-    setup_memory_optimized_environment,
-    MemoryMonitor,
-)
+# Add the parent directory to the Python path to allow for imports
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+try:
+    from scripts.config import (
+        TRAINING_CONFIG,
+        MEMORY_CONFIG,
+        setup_memory_optimized_environment,
+        MemoryMonitor,
+    )
+except ImportError:
+    # If the above doesn't work, try direct import from config
+    from config import (
+        TRAINING_CONFIG,
+        MEMORY_CONFIG,
+        setup_memory_optimized_environment,
+        MemoryMonitor,
+    )
+
 from qwen_vl_utils import process_vision_info as _pvi
 
 
@@ -510,3 +524,94 @@ def train_model(model, processor, train_loader, eval_loader, device):
     Backward-compatible wrapper.
     """
     return enhanced_memory_training_loop(model, processor, train_loader, eval_loader, device)
+
+
+def main():
+    """Main function for command-line execution."""
+    import argparse
+    from transformers import AutoProcessor, Qwen2VLForConditionalGeneration
+    from torch.utils.data import DataLoader
+    
+    parser = argparse.ArgumentParser(description="Train Qwen-VL2 model")
+    parser.add_argument("--mode", type=str, default="train", help="Training mode")
+    parser.add_argument("--train_csv", type=str, required=True, help="Path to training CSV/JSON file")
+    parser.add_argument("--train_video_dir", type=str, required=True, help="Directory containing training videos")
+    parser.add_argument("--save_dir", type=str, default="output", help="Directory to save model")
+    parser.add_argument("--epochs", type=int, default=1, help="Number of training epochs")
+    parser.add_argument("--lr", type=float, default=1e-5, help="Learning rate")
+    parser.add_argument("--batch_size", type=int, default=4, help="Batch size")
+    
+    args = parser.parse_args()
+    
+    print(f"🚀 Starting training with:")
+    print(f"  Data: {args.train_csv}")
+    print(f"  Videos: {args.train_video_dir}")
+    print(f"  Output: {args.save_dir}")
+    print(f"  Epochs: {args.epochs}")
+    print(f"  Learning Rate: {args.lr}")
+    print(f"  Batch Size: {args.batch_size}")
+    
+    # Set up device
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"Using device: {device}")
+    
+    try:
+        # Load model and processor
+        print("Loading model and processor...")
+        model_name = "Qwen/Qwen2.5-VL-3B-Instruct"
+        processor = AutoProcessor.from_pretrained(model_name)
+        model = Qwen2VLForConditionalGeneration.from_pretrained(
+            model_name,
+            torch_dtype=torch.bfloat16 if torch.cuda.is_available() else torch.float32,
+            device_map="auto" if torch.cuda.is_available() else None
+        )
+        
+        # Load training data
+        print(f"Loading data from: {args.train_csv}")
+        print(f"Video directory: {args.train_video_dir}")
+        
+        try:
+            try:
+                from dataset_utils import QwenVideoDataset
+            except ImportError:
+                from scripts.dataset_utils import QwenVideoDataset
+            
+            # Create dataset
+            train_dataset = QwenVideoDataset(
+                json_file=args.train_csv,
+                video_folder=args.train_video_dir,
+                processor=processor
+            )
+            
+            # Create data loader
+            train_loader = DataLoader(
+                train_dataset,
+                batch_size=args.batch_size,
+                shuffle=True,
+                num_workers=0,  # Set to 0 for Windows compatibility
+                collate_fn=lambda x: x  # Custom collate function for video data
+            )
+            
+            eval_loader = None  # No evaluation data for now
+            
+            print(f"✅ Loaded {len(train_dataset)} training samples")
+            
+        except Exception as data_error:
+            print(f"❌ Error loading data: {data_error}")
+            print("💡 Make sure your data file exists and video directory is accessible")
+            sys.exit(1)
+        
+        # Start training
+        trained_model = train_model(model, processor, train_loader, eval_loader, device)
+        
+        # Save the model
+        os.makedirs(args.save_dir, exist_ok=True)
+        trained_model.save_pretrained(args.save_dir)
+        processor.save_pretrained(args.save_dir)
+        print(f"✅ Model saved to {args.save_dir}")
+        
+    except Exception as e:
+        print(f"❌ Training failed: {e}")
+        sys.exit(1)
+
+

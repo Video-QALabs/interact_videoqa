@@ -11,3 +11,4 @@ VideoLLaMA3/
 __pycache__/
 output/
 *json
+Qwen2-VL-Finetune/
